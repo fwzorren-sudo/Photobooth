@@ -34,7 +34,8 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `name` | `Sof%C3%ADa%20Isabel` | Name on the welcome screen and every strip |
 | `date` | `15%20de%20Marzo,%202026` | Shown under the name |
 | `tag` | `%23SofiaQuince` | Strip footer (`%23` is `#`) |
-| `accent` / `secondary` | `%23E6338C` | Theme colours, `#RRGGBB` |
+| `theme` | `light` or `dark` | Booth chrome; the keepsake stays light either way |
+| `accent` / `secondary` | `%232F86BF` | Override the theme colours, `#RRGGBB` |
 | `pin` | `1515` | PIN for the settings panel |
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |
@@ -42,6 +43,11 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
 
 URL-encode accents and spaces. Anything you leave out keeps its default.
+
+The booth is light blue and white with gold trim out of the box. Leave
+`accent` and `secondary` off unless you want different colours; `theme=dark`
+switches the on-screen chrome to deep blue for a dimly lit venue, while the
+printed strip stays light because that is what looks right on paper.
 
 ### On the iPad
 

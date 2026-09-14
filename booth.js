@@ -15,8 +15,10 @@
     celebrantName: 'Mis Quince',
     eventDate: '',
     hashtag: '',
-    accent: '#e6338c',
-    secondary: '#f2c230',
+    theme: 'light',
+    // Empty means "use the theme's colour"; a URL param or admin edit overrides.
+    accent: '',
+    secondary: '',
     adminPIN: '1515',
     enableStrip: true,
     enableSingle: true,
@@ -33,7 +35,7 @@
   // Defaults < URL query (how an MDM Web Clip is configured) < on-device edits.
   var URL_KEYS = {
     name: 'celebrantName', date: 'eventDate', tag: 'hashtag',
-    accent: 'accent', secondary: 'secondary', pin: 'adminPIN',
+    accent: 'accent', secondary: 'secondary', pin: 'adminPIN', theme: 'theme',
     countdown: 'countdownSeconds', shots: 'stripShotCount', idle: 'idleResetSeconds'
   };
 
@@ -68,6 +70,7 @@
     if (!config.enableStrip && !config.enableSingle && !config.enableBoomerang) {
       config.enableStrip = true;
     }
+    if (config.theme !== 'dark') config.theme = 'light';
     return config;
   }
 
@@ -78,6 +81,36 @@
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
   var config = loadConfig();
+
+  /** Light blue and white, with gold as the accent metal. */
+  var THEME_DEFAULTS = {
+    light: { accent: '#2f86bf', secondary: '#d3a238' },
+    dark: { accent: '#3e9fd6', secondary: '#e8bd52' }
+  };
+
+  function themeDefaults() { return THEME_DEFAULTS[config.theme] || THEME_DEFAULTS.light; }
+  function accentColor() { return (config.accent || '').trim() || themeDefaults().accent; }
+  function secondaryColor() { return (config.secondary || '').trim() || themeDefaults().secondary; }
+
+  // ---------------------------------------------------------------- colour
+
+  var WHITE = [255, 255, 255];
+  var NEAR_BLACK = [10, 30, 42];
+
+  function parseHex(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+    if (!m) return [47, 134, 191];
+    var n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  /** Blend toward a target colour: t=0 keeps it, t=1 becomes the target. */
+  function mix(hex, target, t) {
+    var c = parseHex(hex);
+    return 'rgb(' + c.map(function (v, i) {
+      return Math.round(v + (target[i] - v) * t);
+    }).join(',') + ')';
+  }
 
   // ---------------------------------------------------------------- catalogs
 
@@ -188,8 +221,16 @@
   // ---------------------------------------------------------------- theming
 
   function applyTheme() {
-    document.documentElement.style.setProperty('--accent', config.accent);
-    document.documentElement.style.setProperty('--secondary', config.secondary);
+    var root = document.documentElement;
+    root.setAttribute('data-theme', config.theme);
+
+    // Only pin the custom properties when the operator actually chose a
+    // colour; otherwise the stylesheet's own theme tokens win.
+    [['--accent', config.accent], ['--secondary', config.secondary]].forEach(function (pair) {
+      var value = (pair[1] || '').trim();
+      if (value) root.style.setProperty(pair[0], value);
+      else root.style.removeProperty(pair[0]);
+    });
     el.attractName.textContent = config.celebrantName || 'Mis Quince';
     el.attractDate.textContent = (config.eventDate || '').toUpperCase();
     el.attractTag.textContent = hashtagText();
@@ -433,41 +474,37 @@
   }
 
   function drawBackground(ctx, w, h) {
-    var gradient = ctx.createLinearGradient(0, 0, w * 0.35, h);
-    gradient.addColorStop(0, config.accent);
-    gradient.addColorStop(0.38, shade(config.accent, -0.12));
-    gradient.addColorStop(0.72, config.secondary);
-    gradient.addColorStop(1, config.accent);
+    var accent = accentColor();
+    var gold = secondaryColor();
+
+    var gradient = ctx.createLinearGradient(0, 0, w * 0.3, h);
+    gradient.addColorStop(0, mix(accent, WHITE, 0.56));
+    gradient.addColorStop(0.4, mix(accent, WHITE, 0.86));
+    gradient.addColorStop(0.66, '#ffffff');
+    gradient.addColorStop(1, mix(accent, WHITE, 0.64));
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
     // Deterministic flourishes: reprinting a strip looks like the first one.
     var rand = seededRandom(0x515cea5e);
-    ctx.fillStyle = 'rgba(255,255,255,.22)';
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = gold;
     var count = Math.max(Math.floor(h / 120), 6);
     for (var i = 0; i < count; i++) {
       var size = 14 + rand() * 20;
       ctx.font = size + 'px system-ui, sans-serif';
       ctx.fillText('✦', rand() * w, rand() * h);
     }
+    ctx.restore();
 
-    ctx.strokeStyle = 'rgba(255,255,255,.55)';
+    ctx.strokeStyle = gold;
     ctx.lineWidth = 3;
     roundRectPath(ctx, 20, 20, w - 40, h - 40, 22);
     ctx.stroke();
   }
 
-  function shade(hex, amount) {
-    var m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-    if (!m) return hex;
-    var num = parseInt(m[1], 16);
-    var parts = [num >> 16, (num >> 8) & 255, num & 255].map(function (v) {
-      return clamp(Math.round(v + 255 * amount), 0, 255);
-    });
-    return 'rgb(' + parts.join(',') + ')';
-  }
-
-  function fittedText(ctx, text, cx, cy, maxW, maxH, family, weight, color) {
+  function fittedText(ctx, text, cx, cy, maxW, maxH, family, weight, color, shadowColor) {
     if (!text) return;
     var size = maxH;
     ctx.textAlign = 'center';
@@ -480,9 +517,9 @@
       size *= 0.94;
     }
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,.35)';
+    ctx.shadowColor = shadowColor || 'rgba(0,0,0,.35)';
     ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowOffsetY = 2;
     ctx.fillText(text, cx, cy);
     ctx.restore();
   }
@@ -512,18 +549,24 @@
     var date = (config.eventDate || '').trim();
     var nameHeight = date ? headerHeight * 0.62 : headerHeight;
 
+    // Deep ink on a pale ground; a soft white halo keeps it off the gradient.
+    var ink = mix(accentColor(), NEAR_BLACK, 0.62);
+    var inkSoft = mix(accentColor(), NEAR_BLACK, 0.44);
+    var bronze = mix(secondaryColor(), NEAR_BLACK, 0.42);
+    var halo = 'rgba(255,255,255,.75)';
+
     fittedText(ctx, name, x + width / 2, headerTop + nameHeight / 2,
-               width, nameHeight * 0.9, SCRIPT_FAMILY, '700', '#fff');
+               width, nameHeight * 0.9, SCRIPT_FAMILY, '700', ink, halo);
 
     if (date) {
       fittedText(ctx, date.toUpperCase(), x + width / 2,
                  headerTop + nameHeight + (headerHeight - nameHeight) / 2,
-                 width, (headerHeight - nameHeight) * 0.6, ROUND_FAMILY, '700', 'rgba(255,255,255,.92)');
+                 width, (headerHeight - nameHeight) * 0.6, ROUND_FAMILY, '700', inkSoft, halo);
     }
 
     var footer = hashtagText() || '✦ MIS QUINCE ✦';
     fittedText(ctx, footer, x + width / 2, footerTop + footerHeight / 2,
-               width, footerHeight * 0.6, ROUND_FAMILY, '800', '#fff');
+               width, footerHeight * 0.6, ROUND_FAMILY, '800', bronze, halo);
   }
 
   function composeStrip(frames) {
@@ -575,7 +618,7 @@
     var tag = hashtagText();
     if (tag) label += '  ·  ' + tag;
     fittedText(ctx, label, w / 2, h - bandHeight * 0.45, w - 24, bandHeight * 0.46,
-               ROUND_FAMILY, '700', '#fff');
+               ROUND_FAMILY, '700', '#fff', 'rgba(0,0,0,.6)');
   }
 
   // ---------------------------------------------------------------- props UI
@@ -1056,8 +1099,10 @@
     { group: 'Evento', key: 'celebrantName', label: 'Quinceañera', type: 'text' },
     { key: 'eventDate', label: 'Fecha', type: 'text' },
     { key: 'hashtag', label: 'Hashtag', type: 'text' },
-    { group: 'Colores', key: 'accent', label: 'Color principal', type: 'text' },
-    { key: 'secondary', label: 'Color secundario', type: 'text' },
+    { group: 'Colores', key: 'theme', label: 'Tema', type: 'choice',
+      options: [['light', 'Claro · Light'], ['dark', 'Oscuro · Dark']] },
+    { key: 'accent', label: 'Color principal', type: 'text', placeholder: 'auto' },
+    { key: 'secondary', label: 'Color secundario', type: 'text', placeholder: 'auto' },
     { group: 'Modos', key: 'enableStrip', label: 'Tira de fotos', type: 'bool' },
     { key: 'enableSingle', label: 'Foto sencilla', type: 'bool' },
     { key: 'enableBoomerang', label: 'Boomerang GIF', type: 'bool' },
@@ -1083,30 +1128,46 @@
       span.textContent = field.label;
       label.appendChild(span);
 
-      var input = document.createElement('input');
-      if (field.type === 'bool') {
-        input.type = 'checkbox';
-        input.checked = !!config[field.key];
+      var control;
+      if (field.type === 'choice') {
+        control = document.createElement('select');
+        field.options.forEach(function (option) {
+          var node = document.createElement('option');
+          node.value = option[0];
+          node.textContent = option[1];
+          control.appendChild(node);
+        });
+        control.value = config[field.key];
       } else {
-        input.type = field.type === 'number' ? 'number' : 'text';
-        if (field.min !== undefined) { input.min = field.min; input.max = field.max; }
-        input.value = config[field.key];
+        control = document.createElement('input');
+        if (field.type === 'bool') {
+          control.type = 'checkbox';
+          control.checked = !!config[field.key];
+        } else {
+          control.type = field.type === 'number' ? 'number' : 'text';
+          if (field.min !== undefined) { control.min = field.min; control.max = field.max; }
+          if (field.placeholder) control.placeholder = field.placeholder;
+          control.value = config[field.key];
+        }
       }
-      input.addEventListener('change', function () {
-        config[field.key] = field.type === 'bool' ? input.checked
-          : (field.type === 'number' ? Number(input.value) : input.value);
+      control.id = 'admin-' + field.key;
+      span.setAttribute('for', control.id);
+
+      control.addEventListener('change', function () {
+        config[field.key] = field.type === 'bool' ? control.checked
+          : (field.type === 'number' ? Number(control.value) : control.value);
         config = sanitize(config);
         saveConfig();
         applyTheme();
         buildControls();
       });
-      label.appendChild(input);
+      label.appendChild(control);
       el.adminBody.appendChild(label);
     });
 
     var note = document.createElement('p');
     note.className = 'note';
-    note.textContent = 'Restablecer borra los ajustes de este dispositivo y vuelve a los valores del enlace (los parámetros de la URL que envía tu MDM).';
+    note.textContent = 'Deja los colores en blanco para usar los del tema. Restablecer borra los ajustes de este dispositivo y vuelve a los valores del enlace (los parámetros de la URL que envía tu MDM).';
     el.adminBody.appendChild(note);
   }
 
