@@ -18,6 +18,16 @@ Open the page, allow the camera once, and tap to start. Guests get:
 …plus seven filters and emoji props they drag, pinch and twist onto the frame.
 Drop a prop with a tap, double-tap it to remove it.
 
+The countdown is spoken out loud in Spanish and a "stand here" oval shows while
+guests get into position, so they look at the lens instead of down at the
+screen. If one frame of a strip comes out badly, tapping that thumbnail
+reshoots **just that frame** and keeps the rest.
+
+Between guests the welcome screen shows the night's most recent keepsakes —
+which is what actually builds a queue. A small corner chip warns whoever is
+running the booth (and only them) about a flat battery, low storage, Wi-Fi
+dropping out, or the camera being taken by another app.
+
 The booth returns itself to the welcome screen after 45 seconds of inactivity,
 so the queue keeps moving.
 
@@ -40,6 +50,8 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |
 | `idle` | `45` | Seconds before the booth resets (15–600) |
+| `voice` | `0` | Set to `0` to silence the spoken countdown |
+| `slideshow` | `0` | Set to `0` to keep tonight's photos off the welcome screen |
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
 
 URL-encode accents and spaces. Anything you leave out keeps its default.

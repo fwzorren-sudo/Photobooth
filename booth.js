@@ -27,7 +27,11 @@
     stripShotCount: 4,
     idleResetSeconds: 45,
     enablePrint: true,
-    enableShare: true
+    enableShare: true,
+    /// Spoken Spanish countdown, so guests look at the lens not the screen.
+    voice: true,
+    /// Show tonight's photos on the attract screen between guests.
+    slideshow: true
   };
 
   var STORAGE_KEY = 'booth.config.v1';
@@ -49,7 +53,7 @@
       var raw = params.get(key);
       config[field] = typeof DEFAULTS[field] === 'number' ? Number(raw) || DEFAULTS[field] : raw;
     });
-    ['strip', 'single', 'boomerang', 'print', 'share'].forEach(function (key) {
+    ['strip', 'single', 'boomerang', 'print', 'share', 'voice', 'slideshow'].forEach(function (key) {
       if (!params.has(key)) return;
       var field = 'enable' + key.charAt(0).toUpperCase() + key.slice(1);
       config[field] = params.get(key) !== '0' && params.get(key) !== 'false';
@@ -155,7 +159,9 @@
     shotIndex: 0,
     result: null,
     propCategory: PROP_CATEGORIES[0].id,
-    cancelled: false
+    cancelled: false,
+    /// Index of the single strip frame being reshot, or -1.
+    redoIndex: -1
   };
 
   var el = {};
@@ -164,8 +170,9 @@
    'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
    'pinCancel', 'pinOk', 'adminModal', 'adminBody', 'adminDone', 'adminReset',
-   'printArea', 'printImg', 'cameraNotice', 'cameraNoticeTitle',
-   'cameraNoticeDetail'].forEach(function (id) { el[id] = document.getElementById(id); });
+   'printArea', 'printImg', 'cameraNotice', 'cameraNoticeTitle', 'cameraNoticeDetail',
+   'guide', 'gallery', 'galleryRow', 'warnings', 'redoRow',
+   'redoThumbs'].forEach(function (id) { el[id] = document.getElementById(id); });
 
   // ---------------------------------------------------------------- helpers
 
@@ -214,9 +221,147 @@
     } catch (e) { /* muted device or no WebAudio: the booth still works */ }
   }
 
+  // ---------------------------------------------------------------- speech
+
+  var speech = window.speechSynthesis;
+  var spanishVoice = null;
+
+  function pickVoice() {
+    if (!speech || !speech.getVoices) return;
+    var voices = speech.getVoices() || [];
+    spanishVoice = voices.filter(function (v) { return /^es/i.test(v.lang || ''); })[0] || null;
+  }
+
+  if (speech) {
+    pickVoice();
+    // Voices load asynchronously in most browsers.
+    if (speech.addEventListener) speech.addEventListener('voiceschanged', pickVoice);
+  }
+
+  var SPANISH_NUMBERS = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco',
+                         'seis', 'siete', 'ocho', 'nueve', 'diez'];
+
+  function say(text) {
+    if (!config.voice || !speech) return false;
+    try {
+      speech.cancel();
+      var utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-MX';
+      if (spanishVoice) utterance.voice = spanishVoice;
+      utterance.rate = 1.05;
+      utterance.pitch = 1.05;
+      speech.speak(utterance);
+      return true;
+    } catch (e) {
+      return false;   // no speech engine: the beep still carries the countdown
+    }
+  }
+
   function tick() { tone(880, 0.12, 'triangle', 0.1); }
   function shutter() { tone(1600, 0.06, 'square', 0.12); setTimeout(function () { tone(900, 0.09, 'square', 0.1); }, 60); }
   function buzz() { if (navigator.vibrate) { try { navigator.vibrate(18); } catch (e) {} } }
+
+  // ---------------------------------------------------------------- gallery
+
+  /// Blob URLs stay alive while they are on screen, so the list is bounded.
+  var GALLERY_MAX = 24;
+  var GALLERY_SHOWN = 5;
+  var gallery = [];
+  var galleryOffset = 0;
+  var galleryTimer = null;
+
+  function rememberKeepsake(url) {
+    gallery.unshift(url);
+    while (gallery.length > GALLERY_MAX) URL.revokeObjectURL(gallery.pop());
+  }
+
+  function renderGallery() {
+    if (!config.slideshow || !gallery.length) {
+      el.gallery.classList.add('hidden');
+      el.galleryRow.innerHTML = '';
+      return;
+    }
+    el.gallery.classList.remove('hidden');
+    el.galleryRow.innerHTML = '';
+    var shown = Math.min(GALLERY_SHOWN, gallery.length);
+    for (var i = 0; i < shown; i++) {
+      var img = document.createElement('img');
+      img.src = gallery[(galleryOffset + i) % gallery.length];
+      img.alt = '';
+      img.style.animationDelay = (i * 0.07) + 's';
+      el.galleryRow.appendChild(img);
+    }
+  }
+
+  function startGalleryRotation() {
+    clearInterval(galleryTimer);
+    renderGallery();
+    if (!config.slideshow) return;
+    galleryTimer = setInterval(function () {
+      if (state.phase !== 'attract' || gallery.length <= GALLERY_SHOWN) return;
+      galleryOffset = (galleryOffset + 1) % gallery.length;
+      renderGallery();
+    }, 5000);
+  }
+
+  function stopGalleryRotation() {
+    clearInterval(galleryTimer);
+    galleryTimer = null;
+  }
+
+  // ---------------------------------------------------------------- health
+
+  /// Operator-facing warnings. The booth failing quietly halfway through the
+  /// night is the failure mode that actually costs you the party.
+  var warnings = {};
+
+  function setWarning(key, text) {
+    if (text) warnings[key] = text; else delete warnings[key];
+    var keys = Object.keys(warnings);
+    el.warnings.classList.toggle('hidden', keys.length === 0);
+    el.warnings.innerHTML = '';
+    keys.forEach(function (k) {
+      var chip = document.createElement('div');
+      chip.className = 'warn';
+      chip.textContent = warnings[k];
+      el.warnings.appendChild(chip);
+    });
+  }
+
+  function watchHealth() {
+    function checkNetwork() {
+      // Offline does not stop the booth, but it does silently kill sharing.
+      setWarning('net', navigator.onLine ? null : 'Sin Wi-Fi · Offline');
+    }
+    window.addEventListener('online', checkNetwork);
+    window.addEventListener('offline', checkNetwork);
+    checkNetwork();
+
+    // Battery status is unavailable in Safari; the native app covers iPad.
+    if (navigator.getBattery) {
+      navigator.getBattery().then(function (battery) {
+        function check() {
+          var percent = Math.round(battery.level * 100);
+          setWarning('battery',
+            (!battery.charging && percent <= 20) ? 'Batería ' + percent + '% · Plug in' : null);
+        }
+        battery.addEventListener('levelchange', check);
+        battery.addEventListener('chargingchange', check);
+        check();
+      }).catch(function () {});
+    }
+
+    function checkStorage() {
+      if (!navigator.storage || !navigator.storage.estimate) return;
+      navigator.storage.estimate().then(function (estimate) {
+        if (!estimate || !estimate.quota) return;
+        var freeMB = (estimate.quota - (estimate.usage || 0)) / 1048576;
+        setWarning('storage', freeMB < 120 ? 'Poco espacio · Low storage' : null);
+      }).catch(function () {});
+    }
+    checkStorage();
+    setInterval(checkStorage, 60000);
+  }
 
   // ---------------------------------------------------------------- theming
 
@@ -295,6 +440,17 @@
       await el.video.play();
       cameraReady = true;
       hideCameraNotice();
+      setWarning('camera', null);
+
+      // A track can end when another app grabs the camera. The preview just
+      // freezes, so surface it rather than letting guests shoot a still image.
+      var track = stream.getVideoTracks()[0];
+      if (track) {
+        track.addEventListener('ended', function () {
+          cameraReady = false;
+          setWarning('camera', 'Cámara detenida · Camera stopped');
+        });
+      }
       return true;
     } catch (err) {
       var name = err && err.name;
@@ -839,10 +995,15 @@
     el.filterRow.style.opacity = el.propRow.style.opacity = el.propCats.style.opacity = shooting ? 0.3 : 1;
     el.filterRow.style.pointerEvents = el.propRow.style.pointerEvents = el.propCats.style.pointerEvents = shooting ? 'none' : 'auto';
 
+    el.guide.classList.toggle('hidden', phase !== 'ready');
+
     if (phase === 'attract') {
       el.overlay.innerHTML = '';
       el.overlay.className = '';
       el.shots.innerHTML = '';
+      startGalleryRotation();
+    } else {
+      stopGalleryRotation();
     }
     scheduleIdleReset();
   }
@@ -886,7 +1047,9 @@
         : MODES[state.mode].title;
       showOverlay('<div class="overlay-stack"><div class="count">' + value +
                   '</div><div class="count-caption">' + caption + '</div></div>', 'dim');
-      tick(); buzz();
+      // Speak the number when we can; fall back to the beep when we cannot.
+      if (!say(SPANISH_NUMBERS[value] || String(value))) tick();
+      buzz();
       await sleep(1000);
     }
     return !state.cancelled;
@@ -896,8 +1059,10 @@
     if (state.phase !== 'ready') return;
     state.cancelled = false;
     state.shots = [];
+    state.redoIndex = -1;
     updateShotStrip();
     setPhase('shooting');
+    say('¡Miren a la cámara!');
 
     try {
       if (state.mode === 'boomerang') {
@@ -989,17 +1154,78 @@
     state.result = {
       blob: blob,
       mime: mime,
+      mode: state.mode,
       url: URL.createObjectURL(blob),
       filename: 'photobooth-' + stamp + '.' + extension
     };
     el.resultImg.src = state.result.url;
     el.printImg.src = state.result.url;
     buildActions();
+    buildRedoRow();
     showOverlay('');
     setPhase('review');
   }
 
   // ---------------------------------------------------------------- review
+
+  /// A single blink should not cost the guest all four shots.
+  function buildRedoRow() {
+    var canRedo = state.result && state.result.mode === 'strip' && state.shots.length > 1;
+    el.redoRow.classList.toggle('hidden', !canRedo);
+    el.redoThumbs.innerHTML = '';
+    if (!canRedo) return;
+
+    state.shots.forEach(function (canvas, index) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-label', 'Repetir foto ' + (index + 1));
+
+      var img = document.createElement('img');
+      img.src = canvas.toDataURL('image/jpeg', 0.6);
+      img.alt = '';
+      button.appendChild(img);
+
+      var badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = index + 1;
+      button.appendChild(badge);
+
+      button.addEventListener('click', function () { redoShot(index); });
+      el.redoThumbs.appendChild(button);
+    });
+  }
+
+  async function redoShot(index) {
+    if (state.phase !== 'review' || !cameraReady) return;
+
+    state.cancelled = false;
+    state.redoIndex = index;
+    state.shotIndex = index;
+    setPhase('shooting');
+    say('¡Otra vez!');
+
+    try {
+      if (!(await runCountdown(Math.max(2, config.countdownSeconds - 1)))) {
+        state.redoIndex = -1;
+        showOverlay('');
+        setPhase('review');
+        return;
+      }
+
+      showOverlay('', 'flash');
+      shutter();
+      state.shots[index] = renderFrame(1440);
+      await sleep(250);
+      state.redoIndex = -1;
+
+      await composeStills();
+    } catch (err) {
+      state.redoIndex = -1;
+      toast('Algo salió mal · Something went wrong');
+      showOverlay('');
+      setPhase('review');
+    }
+  }
 
   function buildActions() {
     el.actionPane.innerHTML = '';
@@ -1067,7 +1293,14 @@
   }
 
   function goAttract() {
+    // Hand the finished keepsake to the slideshow rather than revoking it;
+    // intermediate versions were already revoked by finishWith().
+    if (state.result && state.result.url) {
+      rememberKeepsake(state.result.url);
+      state.result = null;
+    }
     state.cancelled = true;
+    state.redoIndex = -1;
     state.props = [];
     state.shots = [];
     state.shotIndex = 0;
@@ -1109,6 +1342,8 @@
     { group: 'Captura', key: 'countdownSeconds', label: 'Cuenta regresiva (s)', type: 'number', min: 1, max: 10 },
     { key: 'stripShotCount', label: 'Fotos por tira', type: 'number', min: 2, max: 6 },
     { key: 'idleResetSeconds', label: 'Reinicio automático (s)', type: 'number', min: 15, max: 600 },
+    { group: 'Cabina', key: 'voice', label: 'Cuenta regresiva hablada', type: 'bool' },
+    { key: 'slideshow', label: 'Mostrar fotos de la noche', type: 'bool' },
     { group: 'Compartir', key: 'enableShare', label: 'Botón compartir', type: 'bool' },
     { key: 'enablePrint', label: 'Imprimir (AirPrint)', type: 'bool' },
     { group: 'Seguridad', key: 'adminPIN', label: 'PIN', type: 'text' }
@@ -1245,6 +1480,7 @@
   buildControls();
   bind();
   bindAdmin();
+  watchHealth();
   setPhase('attract');
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
