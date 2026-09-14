@@ -20,6 +20,9 @@
     accent: '',
     secondary: '',
     adminPIN: '1515',
+    /// Link to the shared album for the whole night. Shown as a QR code on
+    /// the review screen so guests can grab everything afterwards.
+    albumUrl: '',
     enableStrip: true,
     enableSingle: true,
     enableBoomerang: true,
@@ -40,6 +43,7 @@
   var URL_KEYS = {
     name: 'celebrantName', date: 'eventDate', tag: 'hashtag',
     accent: 'accent', secondary: 'secondary', pin: 'adminPIN', theme: 'theme',
+    album: 'albumUrl',
     countdown: 'countdownSeconds', shots: 'stripShotCount', idle: 'idleResetSeconds'
   };
 
@@ -260,6 +264,40 @@
   function tick() { tone(880, 0.12, 'triangle', 0.1); }
   function shutter() { tone(1600, 0.06, 'square', 0.12); setTimeout(function () { tone(900, 0.09, 'square', 0.1); }, 60); }
   function buzz() { if (navigator.vibrate) { try { navigator.vibrate(18); } catch (e) {} } }
+
+  // ---------------------------------------------------------------- QR
+
+  /// Only http(s) links become a QR: a typo should show nothing rather than a
+  /// code that sends a phone somewhere strange.
+  function albumLink() {
+    var url = (config.albumUrl || '').trim();
+    return /^https?:\/\/\S+$/i.test(url) ? url : '';
+  }
+
+  /// Crisp vector QR, built from the module matrix so it stays sharp at any
+  /// size and needs no canvas.
+  function qrSvg(text) {
+    if (!window.qrcode) return '';
+    var qr = window.qrcode(0, 'H');
+    qr.addData(text);
+    qr.make();
+
+    var count = qr.getModuleCount();
+    var quiet = 4;
+    var total = count + quiet * 2;
+    var rects = '';
+    for (var row = 0; row < count; row++) {
+      for (var col = 0; col < count; col++) {
+        if (qr.isDark(row, col)) {
+          rects += '<rect x="' + (col + quiet) + '" y="' + (row + quiet) + '" width="1" height="1"/>';
+        }
+      }
+    }
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + total + ' ' + total +
+           '" shape-rendering="crispEdges" role="img" aria-label="Código QR">' +
+           '<rect width="' + total + '" height="' + total + '" fill="#ffffff"/>' +
+           '<g fill="#000000">' + rects + '</g></svg>';
+  }
 
   // ---------------------------------------------------------------- gallery
 
@@ -1230,6 +1268,19 @@
   function buildActions() {
     el.actionPane.innerHTML = '';
 
+    var album = albumLink();
+    if (album) {
+      var svg = qrSvg(album);
+      if (svg) {
+        var card = document.createElement('div');
+        card.className = 'album-card';
+        card.innerHTML = '<div class="qr">' + svg + '</div>' +
+          '<div class="qr-title">Escanea para todas las fotos</div>' +
+          '<div class="qr-sub">Scan for every photo from tonight</div>';
+        el.actionPane.appendChild(card);
+      }
+    }
+
     var file = new File([state.result.blob], state.result.filename, { type: state.result.mime });
     var canShareFile = config.enableShare && navigator.canShare && navigator.canShare({ files: [file] });
 
@@ -1346,6 +1397,7 @@
     { key: 'slideshow', label: 'Mostrar fotos de la noche', type: 'bool' },
     { group: 'Compartir', key: 'enableShare', label: 'Botón compartir', type: 'bool' },
     { key: 'enablePrint', label: 'Imprimir (AirPrint)', type: 'bool' },
+    { group: 'Álbum', key: 'albumUrl', label: 'Enlace del álbum', type: 'text', placeholder: 'https://…' },
     { group: 'Seguridad', key: 'adminPIN', label: 'PIN', type: 'text' }
   ];
 

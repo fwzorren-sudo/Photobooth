@@ -18,6 +18,12 @@ Open the page, allow the camera once, and tap to start. Guests get:
 …plus seven filters and emoji props they drag, pinch and twist onto the frame.
 Drop a prop with a tap, double-tap it to remove it.
 
+Set `album` to a shared-album link and the review screen shows a QR code for
+it. Guests scan once and get every photo from the night. **This is how guests
+take photos home from the web booth** — a static site has no server at the
+venue, so it cannot hand a file straight to someone else's phone the way the
+native iPad app can.
+
 The countdown is spoken out loud in Spanish and a "stand here" oval shows while
 guests get into position, so they look at the lens instead of down at the
 screen. If one frame of a strip comes out badly, tapping that thumbnail
@@ -46,6 +52,7 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `tag` | `%23SofiaQuince` | Strip footer (`%23` is `#`) |
 | `theme` | `light` or `dark` | Booth chrome; the keepsake stays light either way |
 | `accent` / `secondary` | `%232F86BF` | Override the theme colours, `#RRGGBB` |
+| `album` | `https%3A%2F%2Fphotos.app.goo.gl%2F…` | Shared-album link; shown as a QR on the review screen |
 | `pin` | `1515` | PIN for the settings panel |
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |

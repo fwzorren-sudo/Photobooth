@@ -169,6 +169,17 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
   }
 
+  /* Album QR on the review screen. */
+  .album-card {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--btn-radius); padding: 14px;
+  }
+  .album-card .qr { background: #fff; padding: 8px; border-radius: 10px; line-height: 0; }
+  .album-card .qr svg { display: block; width: clamp(118px, 14vw, 168px); height: auto; }
+  .album-card .qr-title { font-weight: 700; font-size: clamp(14px, 1.9vh, 18px); color: var(--ink); text-align: center; }
+  .album-card .qr-sub { font-size: clamp(11px, 1.5vh, 14px); color: var(--ink-soft); text-align: center; }
+
   /* Redo one frame of a strip instead of reshooting all four. */
   .redo-row { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .redo-hint { font-size: clamp(12px, 1.8vh, 15px); color: var(--ink-soft); font-weight: 600; text-align: center; }
@@ -479,6 +490,7 @@
   </div>
 </div>
 
+<script src="qrcode.js"></script>
 <script src="gif.js"></script>
 <script src="booth.js"></script>
 </body>
