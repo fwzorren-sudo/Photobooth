@@ -24,6 +24,15 @@ take photos home from the web booth** — a static site has no server at the
 venue, so it cannot hand a file straight to someone else's phone the way the
 native iPad app can.
 
+There is also a **video guestbook** mode for a short spoken message, a
+**Firmar** button that lets guests sign their photo with a finger before
+saving, and a **monogram** image (picked in the admin panel) drawn as a crest
+above the name on everything the booth makes. The monogram stays on the
+device — it is never committed here.
+
+Video messages live only in memory in this build, since a static site has no
+disk: save or share one before leaving the review screen.
+
 The countdown is spoken out loud in Spanish and a "stand here" oval shows while
 guests get into position, so they look at the lens instead of down at the
 screen. If one frame of a strip comes out badly, tapping that thumbnail
@@ -59,6 +68,7 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `idle` | `45` | Seconds before the booth resets (15–600) |
 | `voice` | `0` | Set to `0` to silence the spoken countdown |
 | `slideshow` | `0` | Set to `0` to keep tonight's photos off the welcome screen |
+| `video`, `sign` | `0` | Set to `0` to hide the video guestbook or signing |
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
 
 URL-encode accents and spaces. Anything you leave out keeps its default.

@@ -34,7 +34,15 @@
     /// Spoken Spanish countdown, so guests look at the lens not the screen.
     voice: true,
     /// Show tonight's photos on the attract screen between guests.
-    slideshow: true
+    slideshow: true,
+    /// Video guestbook: a short spoken message for the celebrant.
+    enableVideo: true,
+    videoSeconds: 15,
+    /// Let guests sign their keepsake with a finger before saving it.
+    enableSign: true,
+    /// Monogram burned into every keepsake. A data URL, set from the admin
+    /// panel so it is same-origin and never taints the canvas.
+    monogram: ''
   };
 
   var STORAGE_KEY = 'booth.config.v1';
@@ -57,9 +65,11 @@
       var raw = params.get(key);
       config[field] = typeof DEFAULTS[field] === 'number' ? Number(raw) || DEFAULTS[field] : raw;
     });
-    ['strip', 'single', 'boomerang', 'print', 'share', 'voice', 'slideshow'].forEach(function (key) {
+    ['strip', 'single', 'boomerang', 'print', 'share', 'voice', 'slideshow',
+     'video', 'sign'].forEach(function (key) {
       if (!params.has(key)) return;
-      var field = 'enable' + key.charAt(0).toUpperCase() + key.slice(1);
+      var field = key === 'sign' ? 'enableSign'
+        : 'enable' + key.charAt(0).toUpperCase() + key.slice(1);
       config[field] = params.get(key) !== '0' && params.get(key) !== 'false';
     });
 
@@ -75,7 +85,9 @@
     config.countdownSeconds = clamp(Math.round(config.countdownSeconds), 1, 10);
     config.stripShotCount = clamp(Math.round(config.stripShotCount), 2, 6);
     config.idleResetSeconds = clamp(Math.round(config.idleResetSeconds), 15, 600);
-    if (!config.enableStrip && !config.enableSingle && !config.enableBoomerang) {
+    config.videoSeconds = clamp(Math.round(config.videoSeconds), 5, 60);
+    if (!config.enableStrip && !config.enableSingle &&
+        !config.enableBoomerang && !config.enableVideo) {
       config.enableStrip = true;
     }
     if (config.theme !== 'dark') config.theme = 'light';
@@ -144,7 +156,8 @@
   var MODES = {
     strip: { title: 'Tira de Fotos', emoji: '🎞️', shoot: '¡Foto!', shootSub: 'Shoot' },
     single: { title: 'Foto', emoji: '📸', shoot: '¡Foto!', shootSub: 'Shoot' },
-    boomerang: { title: 'Boomerang', emoji: '🔁', shoot: '¡Grabar!', shootSub: 'Record' }
+    boomerang: { title: 'Boomerang', emoji: '🔁', shoot: '¡Grabar!', shootSub: 'Record' },
+    video: { title: 'Mensaje', emoji: '🎥', shoot: '¡Grabar!', shootSub: 'Record a message' }
   };
 
   var BOOMERANG = { frames: 14, interval: 1000 / 12, delay: 0.07, width: 480 };
@@ -165,7 +178,12 @@
     propCategory: PROP_CATEGORIES[0].id,
     cancelled: false,
     /// Index of the single strip frame being reshot, or -1.
-    redoIndex: -1
+    redoIndex: -1,
+    /// The composed keepsake, kept so a signature can be added without
+    /// recomposing from the original frames.
+    composed: null,
+    /// Signature strokes in normalised coordinates.
+    strokes: []
   };
 
   var el = {};
@@ -175,8 +193,10 @@
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
    'pinCancel', 'pinOk', 'adminModal', 'adminBody', 'adminDone', 'adminReset',
    'printArea', 'printImg', 'cameraNotice', 'cameraNoticeTitle', 'cameraNoticeDetail',
-   'guide', 'gallery', 'galleryRow', 'warnings', 'redoRow',
-   'redoThumbs'].forEach(function (id) { el[id] = document.getElementById(id); });
+   'guide', 'gallery', 'galleryRow', 'warnings', 'redoRow', 'redoThumbs',
+   'resultVideo', 'signModal', 'signStage', 'signImg', 'signCanvas', 'signColors',
+   'signUndo', 'signClear', 'signCancel',
+   'signDone'].forEach(function (id) { el[id] = document.getElementById(id); });
 
   // ---------------------------------------------------------------- helpers
 
@@ -185,7 +205,31 @@
     if (config.enableStrip) list.push('strip');
     if (config.enableSingle) list.push('single');
     if (config.enableBoomerang) list.push('boomerang');
+    if (config.enableVideo && supportsVideoRecording() && videoModeAvailable) list.push('video');
     return list.length ? list : ['strip'];
+  }
+
+  /// MediaRecorder reached Safari in 14.3; hide the mode rather than offer a
+  /// button that cannot work.
+  function supportsVideoRecording() {
+    return typeof MediaRecorder !== 'undefined' && !!videoMimeType();
+  }
+
+  /// Safari records MP4, Chromium WebM. Pick whatever this browser admits to.
+  function videoMimeType() {
+    var candidates = [
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      try {
+        if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+      } catch (e) { /* older engines throw instead of returning false */ }
+    }
+    return '';
   }
 
   function totalShots() { return state.mode === 'strip' ? config.stripShotCount : 1; }
@@ -313,6 +357,16 @@
     while (gallery.length > GALLERY_MAX) URL.revokeObjectURL(gallery.pop());
   }
 
+  /// Video messages are large, and this build has no disk to put them on, so
+  /// only the last few are kept alive for the host to collect.
+  var VIDEO_KEEP = 6;
+  var retainedVideos = [];
+
+  function retainVideo(url) {
+    retainedVideos.push(url);
+    while (retainedVideos.length > VIDEO_KEEP) URL.revokeObjectURL(retainedVideos.shift());
+  }
+
   function renderGallery() {
     if (!config.slideshow || !gallery.length) {
       el.gallery.classList.add('hidden');
@@ -404,6 +458,7 @@
   // ---------------------------------------------------------------- theming
 
   function applyTheme() {
+    loadMonogram();
     var root = document.documentElement;
     root.setAttribute('data-theme', config.theme);
 
@@ -437,6 +492,9 @@
 
   var stream = null;
   var cameraReady = false;
+  /// False once we know the microphone is unavailable, which hides the video
+  /// mode rather than offering a message that would record silence.
+  var videoModeAvailable = true;
 
   /**
    * A booth that silently refuses to start is the worst possible failure, so
@@ -469,11 +527,22 @@
       return false;
     }
 
+    var constraints = { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } } };
+    var wantAudio = config.enableVideo && supportsVideoRecording();
+
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
-      });
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          Object.assign({}, constraints, { audio: wantAudio }));
+      } catch (audioError) {
+        // A booth that takes photos beats no booth: if the microphone is
+        // refused or missing, carry on without the video guestbook.
+        if (!wantAudio) throw audioError;
+        stream = await navigator.mediaDevices.getUserMedia(
+          Object.assign({}, constraints, { audio: false }));
+      }
+
+      videoModeAvailable = stream.getAudioTracks().length > 0;
       el.video.srcObject = stream;
       await el.video.play();
       cameraReady = true;
@@ -735,12 +804,52 @@
     ctx.restore();
   }
 
+  /// Decoded lazily and cached: the same monogram is drawn on every keepsake.
+  var monogramImage = null;
+  var monogramSource = '';
+
+  function loadMonogram() {
+    var source = (config.monogram || '').trim();
+    if (!source) { monogramImage = null; monogramSource = ''; return; }
+    if (source === monogramSource && monogramImage) return;
+
+    var img = new Image();
+    img.onload = function () { monogramImage = img; monogramSource = source; };
+    img.onerror = function () { monogramImage = null; monogramSource = ''; };
+    img.src = source;
+  }
+
+  /// Draws the monogram centred in `rect`, preserving its aspect ratio.
+  function drawMonogram(ctx, x, y, width, height) {
+    if (!monogramImage || !monogramImage.width || !monogramImage.height) return false;
+    var scale = Math.min(width / monogramImage.width, height / monogramImage.height);
+    var w = monogramImage.width * scale;
+    var h = monogramImage.height * scale;
+    ctx.drawImage(monogramImage, x + (width - w) / 2, y + (height - h) / 2, w, h);
+    return true;
+  }
+
   var SCRIPT_FAMILY = '"Snell Roundhand", "Zapfino", cursive';
   var ROUND_FAMILY = 'ui-rounded, -apple-system, system-ui, sans-serif';
 
   function drawHeaderFooter(ctx, x, width, headerTop, headerHeight, footerTop, footerHeight) {
     var name = config.celebrantName || 'Mis Quince';
     var date = (config.eventDate || '').trim();
+
+    // A monogram takes the top of the header like a crest, and the name and
+    // date share what is left.
+    var top = headerTop;
+    var remaining = headerHeight;
+    if (monogramImage) {
+      var crest = headerHeight * 0.38;
+      if (drawMonogram(ctx, x + width / 2 - crest / 2, top, crest, crest)) {
+        top += crest + headerHeight * 0.04;
+        remaining = headerHeight - crest - headerHeight * 0.04;
+      }
+    }
+
+    headerTop = top;
+    headerHeight = remaining;
     var nameHeight = date ? headerHeight * 0.62 : headerHeight;
 
     // Deep ink on a pale ground; a soft white halo keeps it off the gradient.
@@ -1103,7 +1212,10 @@
     say('¡Miren a la cámara!');
 
     try {
-      if (state.mode === 'boomerang') {
+      if (state.mode === 'video') {
+        if (!(await runCountdown(3))) return abortCapture();
+        await recordMessage();
+      } else if (state.mode === 'boomerang') {
         if (!(await runCountdown(config.countdownSeconds))) return abortCapture();
         shutter();
         await recordBoomerang();
@@ -1144,10 +1256,9 @@
     processingOverlay();
     await sleep(30); // let the overlay paint before the main thread blocks
     var canvas = state.mode === 'strip' ? composeStrip(state.shots) : composeSingle(state.shots[0]);
-    var blob = await new Promise(function (resolve) {
-      canvas.toBlob(resolve, 'image/jpeg', 0.92);
-    });
-    finishWith(blob, 'image/jpeg', 'jpg');
+    state.composed = canvas;
+    state.strokes = [];
+    await publishCanvas(canvas);
   }
 
   async function recordBoomerang() {
@@ -1183,25 +1294,263 @@
       return { data: imageData.data, width: width, height: height };
     }), BOOMERANG.delay);
 
+    state.composed = null;
+    state.strokes = [];
     finishWith(new Blob([bytes], { type: 'image/gif' }), 'image/gif', 'gif');
   }
 
-  function finishWith(blob, mime, extension) {
+  /// Renders the composed keepsake (plus any signature) to a file.
+  async function publishCanvas(canvas) {
+    var output = canvas;
+    if (state.strokes && state.strokes.length) {
+      output = document.createElement('canvas');
+      output.width = canvas.width;
+      output.height = canvas.height;
+      var ctx = output.getContext('2d');
+      ctx.drawImage(canvas, 0, 0);
+      drawStrokes(ctx, state.strokes, canvas.width, canvas.height);
+    }
+    var blob = await new Promise(function (resolve) {
+      output.toBlob(resolve, 'image/jpeg', 0.92);
+    });
+    finishWith(blob, 'image/jpeg', 'jpg');
+  }
+
+  /// Strokes are stored normalised, so the same gesture scales from a phone
+  /// preview to a 1200px print without redrawing anything.
+  function drawStrokes(ctx, strokes, width, height) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    strokes.forEach(function (stroke) {
+      if (stroke.points.length < 1) return;
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = Math.max(stroke.width * width, 1);
+      ctx.beginPath();
+      stroke.points.forEach(function (point, index) {
+        var x = point.x * width;
+        var y = point.y * height;
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      if (stroke.points.length === 1) {
+        // A tap is a dot, not nothing.
+        ctx.lineTo(stroke.points[0].x * width + 0.01, stroke.points[0].y * height);
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  /// A short spoken message for the celebrant. Records the camera stream
+  /// directly rather than a filtered canvas: a guestbook message is about the
+  /// person talking, and the raw stream is far less to go wrong mid-party.
+  async function recordMessage() {
+    var mime = videoMimeType();
+    if (!mime || !stream) {
+      toast('No se puede grabar aquí · Recording unavailable');
+      return abortCapture();
+    }
+
+    // Poster frame first, so the attract slideshow has something to show.
+    var poster = renderFrame(640);
+
+    var chunks = [];
+    var recorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: mime });
+    } catch (err) {
+      toast('No se puede grabar aquí · Recording unavailable');
+      return abortCapture();
+    }
+
+    recorder.ondataavailable = function (event) {
+      if (event.data && event.data.size) chunks.push(event.data);
+    };
+    var stopped = new Promise(function (resolve) { recorder.onstop = resolve; });
+
+    var finishEarly = false;
+    var tapToFinish = function () { finishEarly = true; };
+    el.frame.addEventListener('click', tapToFinish);
+
+    say('¡Cuéntale algo bonito!');
+    recorder.start();
+
+    var total = config.videoSeconds * 1000;
+    var startedAt = Date.now();
+    var circumference = 2 * Math.PI * 64;
+
+    while (!finishEarly && !state.cancelled && Date.now() - startedAt < total) {
+      var elapsed = Date.now() - startedAt;
+      var remaining = Math.max(0, Math.ceil((total - elapsed) / 1000));
+      showOverlay(
+        '<div class="overlay-stack">' +
+        '<svg class="ring" viewBox="0 0 140 140">' +
+        '<circle class="track" cx="70" cy="70" r="64"></circle>' +
+        '<circle class="value" cx="70" cy="70" r="64" stroke-dasharray="' + circumference +
+        '" stroke-dashoffset="' + (circumference * (elapsed / total)) + '"></circle></svg>' +
+        '<div class="big">🔴 ' + remaining + 's</div>' +
+        '<div class="big" style="font-size:.7em">Toca para terminar · Tap to finish</div></div>', 'dim');
+      await sleep(120);
+    }
+
+    el.frame.removeEventListener('click', tapToFinish);
+
+    try { recorder.stop(); } catch (e) { /* already stopped */ }
+    await stopped;
+
+    if (state.cancelled) return abortCapture();
+
+    processingOverlay();
+    await sleep(30);
+
+    var container = mime.split(';')[0];
+    var blob = new Blob(chunks, { type: container });
+    if (!blob.size) {
+      toast('La grabación salió vacía · Nothing was recorded');
+      return abortCapture();
+    }
+
+    state.composed = null;
+    state.strokes = [];
+    finishWith(blob, container, container.indexOf('mp4') >= 0 ? 'mp4' : 'webm',
+               poster.toDataURL('image/jpeg', 0.7));
+  }
+
+  function finishWith(blob, mime, extension, posterUrl) {
     if (state.result && state.result.url) URL.revokeObjectURL(state.result.url);
     var stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     state.result = {
       blob: blob,
       mime: mime,
       mode: state.mode,
+      isVideo: mime.indexOf('video/') === 0,
       url: URL.createObjectURL(blob),
+      posterUrl: posterUrl || '',
       filename: 'photobooth-' + stamp + '.' + extension
     };
-    el.resultImg.src = state.result.url;
-    el.printImg.src = state.result.url;
+
+    el.resultImg.classList.toggle('hidden', state.result.isVideo);
+    el.resultVideo.classList.toggle('hidden', !state.result.isVideo);
+    if (state.result.isVideo) {
+      el.resultVideo.src = state.result.url;
+    } else {
+      el.resultImg.src = state.result.url;
+      el.printImg.src = state.result.url;
+    }
+
     buildActions();
     buildRedoRow();
     showOverlay('');
     setPhase('review');
+  }
+
+  // ---------------------------------------------------------------- signing
+
+  var INKS = ['#0E3549', '#D3A238', '#FFFFFF', '#C2185B'];
+  var signState = { strokes: [], ink: INKS[0], drawing: null };
+
+  function cloneStroke(stroke) {
+    return { color: stroke.color, width: stroke.width, points: stroke.points.slice() };
+  }
+
+  function openSignSheet() {
+    if (!state.composed) return;
+    signState.strokes = state.strokes.map(cloneStroke);
+    signState.ink = INKS[0];
+
+    // Backdrop is the UNSIGNED keepsake; existing ink is redrawn on the
+    // overlay, so reopening the sheet never double-draws a stroke.
+    el.signImg.src = state.composed.toDataURL('image/jpeg', 0.82);
+    buildInkSwatches();
+    el.signModal.classList.remove('hidden');
+
+    if (el.signImg.complete) syncSignCanvas();
+    else el.signImg.onload = syncSignCanvas;
+    noteActivity();
+  }
+
+  function closeSignSheet() {
+    el.signModal.classList.add('hidden');
+    signState.drawing = null;
+    noteActivity();
+  }
+
+  function buildInkSwatches() {
+    el.signColors.innerHTML = '';
+    INKS.forEach(function (color) {
+      var button = document.createElement('button');
+      button.className = 'ink' + (color === signState.ink ? ' on' : '');
+      button.style.background = color;
+      button.setAttribute('aria-label', 'Color ' + color);
+      button.addEventListener('click', function () {
+        signState.ink = color;
+        buildInkSwatches();
+      });
+      el.signColors.appendChild(button);
+    });
+  }
+
+  function syncSignCanvas() {
+    var rect = el.signImg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    el.signCanvas.width = Math.round(rect.width * dpr);
+    el.signCanvas.height = Math.round(rect.height * dpr);
+    redrawSign();
+  }
+
+  function redrawSign() {
+    var ctx = el.signCanvas.getContext('2d');
+    ctx.clearRect(0, 0, el.signCanvas.width, el.signCanvas.height);
+    drawStrokes(ctx, signState.strokes, el.signCanvas.width, el.signCanvas.height);
+  }
+
+  function signPoint(event) {
+    var rect = el.signCanvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height
+    };
+  }
+
+  function bindSigning() {
+    el.signCanvas.addEventListener('pointerdown', function (event) {
+      event.preventDefault();
+      el.signCanvas.setPointerCapture(event.pointerId);
+      signState.drawing = { color: signState.ink, width: 0.007, points: [signPoint(event)] };
+      signState.strokes.push(signState.drawing);
+      redrawSign();
+    });
+
+    el.signCanvas.addEventListener('pointermove', function (event) {
+      if (!signState.drawing) return;
+      event.preventDefault();
+      signState.drawing.points.push(signPoint(event));
+      redrawSign();
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (type) {
+      el.signCanvas.addEventListener(type, function () { signState.drawing = null; });
+    });
+
+    el.signUndo.addEventListener('click', function () {
+      signState.strokes.pop();
+      redrawSign();
+    });
+    el.signClear.addEventListener('click', function () {
+      signState.strokes = [];
+      redrawSign();
+    });
+    el.signCancel.addEventListener('click', closeSignSheet);
+    el.signDone.addEventListener('click', async function () {
+      state.strokes = signState.strokes.map(cloneStroke);
+      closeSignSheet();
+      if (state.composed) await publishCanvas(state.composed);
+    });
+
+    window.addEventListener('resize', function () {
+      if (!el.signModal.classList.contains('hidden')) syncSignCanvas();
+    });
   }
 
   // ---------------------------------------------------------------- review
@@ -1284,6 +1633,10 @@
     var file = new File([state.result.blob], state.result.filename, { type: state.result.mime });
     var canShareFile = config.enableShare && navigator.canShare && navigator.canShare({ files: [file] });
 
+    if (config.enableSign && state.composed) {
+      addAction('✍️', 'Firmar', 'Sign it', openSignSheet);
+    }
+
     if (canShareFile) {
       addAction('📤', 'Compartir', 'Guardar, enviar por mensaje o email', async function () {
         try {
@@ -1303,7 +1656,7 @@
       noteActivity();
     });
 
-    if (config.enablePrint) {
+    if (config.enablePrint && !state.result.isVideo) {
       addAction('🖨️', 'Imprimir', 'AirPrint', function () {
         noteActivity();
         window.print();
@@ -1313,7 +1666,9 @@
     var hint = document.createElement('p');
     hint.className = 'hint';
     hint.style.textAlign = 'center';
-    hint.textContent = 'Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.';
+    hint.textContent = state.result.isVideo
+      ? 'Guarda o comparte el mensaje antes de terminar — no se queda en la tablet.'
+      : 'Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.';
     el.actionPane.appendChild(hint);
 
     var spacer = document.createElement('div');
@@ -1347,9 +1702,16 @@
     // Hand the finished keepsake to the slideshow rather than revoking it;
     // intermediate versions were already revoked by finishWith().
     if (state.result && state.result.url) {
-      rememberKeepsake(state.result.url);
+      if (state.result.isVideo) {
+        retainVideo(state.result.url);
+        if (state.result.posterUrl) rememberKeepsake(state.result.posterUrl);
+      } else {
+        rememberKeepsake(state.result.url);
+      }
       state.result = null;
     }
+    state.composed = null;
+    state.strokes = [];
     state.cancelled = true;
     state.redoIndex = -1;
     state.props = [];
@@ -1394,6 +1756,10 @@
     { key: 'stripShotCount', label: 'Fotos por tira', type: 'number', min: 2, max: 6 },
     { key: 'idleResetSeconds', label: 'Reinicio automático (s)', type: 'number', min: 15, max: 600 },
     { group: 'Cabina', key: 'voice', label: 'Cuenta regresiva hablada', type: 'bool' },
+    { key: 'enableVideo', label: 'Mensaje en video', type: 'bool' },
+    { key: 'videoSeconds', label: 'Duración del mensaje (s)', type: 'number', min: 5, max: 60 },
+    { key: 'enableSign', label: 'Permitir firmar la foto', type: 'bool' },
+    { group: 'Monograma', key: 'monogram', label: 'Imagen', type: 'file' },
     { key: 'slideshow', label: 'Mostrar fotos de la noche', type: 'bool' },
     { group: 'Compartir', key: 'enableShare', label: 'Botón compartir', type: 'bool' },
     { key: 'enablePrint', label: 'Imprimir (AirPrint)', type: 'bool' },
@@ -1416,6 +1782,60 @@
       label.appendChild(span);
 
       var control;
+      if (field.type === 'file') {
+        control = document.createElement('input');
+        control.type = 'file';
+        control.accept = 'image/png,image/jpeg,image/svg+xml';
+        control.id = 'admin-' + field.key;
+        control.addEventListener('change', function () {
+          var picked = control.files && control.files[0];
+          if (!picked) return;
+          // Stored as a data URL in localStorage: same-origin, so it never
+          // taints the canvas, and it survives without a hosting step.
+          if (picked.size > 250 * 1024) {
+            toast('Imagen muy grande · Keep it under 250 KB');
+            control.value = '';
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function () {
+            config[field.key] = String(reader.result);
+            saveConfig();
+            applyTheme();
+            buildAdmin();
+            toast('Monograma actualizado');
+          };
+          reader.readAsDataURL(picked);
+        });
+        label.appendChild(control);
+        el.adminBody.appendChild(label);
+
+        if ((config[field.key] || '').trim()) {
+          var preview = document.createElement('label');
+          var thumb = document.createElement('img');
+          thumb.src = config[field.key];
+          thumb.alt = '';
+          thumb.style.height = '44px';
+          thumb.style.background = 'rgba(0,0,0,.06)';
+          thumb.style.borderRadius = '8px';
+          preview.appendChild(thumb);
+
+          var clear = document.createElement('button');
+          clear.className = 'btn';
+          clear.style.padding = '8px 14px';
+          clear.textContent = 'Quitar';
+          clear.addEventListener('click', function () {
+            config[field.key] = '';
+            saveConfig();
+            applyTheme();
+            buildAdmin();
+          });
+          preview.appendChild(clear);
+          el.adminBody.appendChild(preview);
+        }
+        return;
+      }
+
       if (field.type === 'choice') {
         control = document.createElement('select');
         field.options.forEach(function (option) {
@@ -1532,6 +1952,7 @@
   buildControls();
   bind();
   bindAdmin();
+  bindSigning();
   watchHealth();
   setPhase('attract');
 

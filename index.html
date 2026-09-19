@@ -169,6 +169,32 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
   }
 
+  /* Signing: draw straight onto the keepsake with a finger. */
+  .sign-sheet {
+    background: var(--sheet-bg); border-radius: 22px; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; align-items: center;
+    max-width: 96vw; max-height: 94vh; box-shadow: 0 24px 60px var(--shadow);
+  }
+  .sign-stage { position: relative; line-height: 0; max-height: 72vh; }
+  .sign-stage img { max-height: 72vh; max-width: 88vw; width: auto; display: block; border-radius: 10px; }
+  #signCanvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; border-radius: 10px; }
+  .sign-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .sign-colors { display: flex; gap: 8px; }
+  .ink {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 3px solid var(--border);
+  }
+  .ink.on { border-color: var(--accent); transform: scale(1.12); }
+  .sign-tools .btn { padding: 12px 18px; font-size: 16px; }
+
+  /* Video guestbook playback on the review screen. */
+  #resultVideo {
+    flex: 1 1 auto; min-height: 0;
+    max-width: 100%; width: auto;
+    border-radius: 18px; border: 4px solid var(--secondary);
+    box-shadow: 0 16px 40px var(--shadow); background: #000;
+  }
+
   /* Album QR on the review screen. */
   .album-card {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -317,10 +343,11 @@
   .result-pane h2 { margin: 0; font-size: clamp(22px, 4vh, 38px); color: var(--ink); }
   .result-pane .sub { margin: 0; color: var(--ink-soft); font-size: clamp(13px, 2vh, 19px); }
   #resultImg {
-    /* Shrinks to share the column with the redo row instead of overflowing
-       it and swallowing its taps. min-height:0 is what lets it shrink. */
-    flex: 0 1 auto; min-height: 0;
-    max-height: 68vh; max-width: 100%; width: auto;
+    /* Grows into whatever the heading and redo row leave, rather than
+       sitting small in the middle of empty space. min-height:0 is what lets
+       it shrink below its intrinsic size instead of overflowing. */
+    flex: 1 1 auto; min-height: 0;
+    max-width: 100%; width: auto;
     border-radius: 18px; object-fit: contain;
     border: 4px solid var(--secondary);
     box-shadow: 0 16px 40px var(--shadow); background: #fff;
@@ -454,6 +481,7 @@
       <h2>¡Quedó preciosa!</h2>
       <p class="sub">Looking gorgeous</p>
       <img id="resultImg" alt="Tu foto">
+      <video id="resultVideo" class="hidden" playsinline controls></video>
       <div class="redo-row hidden" id="redoRow">
         <div class="redo-hint">¿Salió mal una? Tócala para repetirla · Tap one to redo just that shot</div>
         <div class="redo-thumbs" id="redoThumbs"></div>
@@ -465,6 +493,22 @@
   <div id="printArea"><img id="printImg" alt=""></div>
   <div id="toast"></div>
   <div id="hotcorner"></div>
+
+  <div class="modal hidden" id="signModal">
+    <div class="sign-sheet">
+      <div class="sign-stage" id="signStage">
+        <img id="signImg" alt="">
+        <canvas id="signCanvas"></canvas>
+      </div>
+      <div class="sign-tools">
+        <div class="sign-colors" id="signColors"></div>
+        <button class="btn" id="signUndo">↶ Deshacer</button>
+        <button class="btn" id="signClear">Limpiar</button>
+        <button class="btn" id="signCancel">Cancelar</button>
+        <button class="btn primary" id="signDone">✓ Listo</button>
+      </div>
+    </div>
+  </div>
 
   <div class="modal hidden" id="pinModal">
     <div class="sheet" style="max-width:360px">

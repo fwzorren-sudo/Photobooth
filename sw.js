@@ -1,6 +1,6 @@
 /* Cache-first service worker: once the booth has loaded, the venue Wi-Fi can
    die and the app keeps working. Bump CACHE when you change any asset. */
-var CACHE = 'quince-booth-v4';
+var CACHE = 'quince-booth-v5';
 var ASSETS = [
   './', './index.html', './booth.js', './gif.js', './qrcode.js', './manifest.webmanifest',
   './icon-180.png', './icon-192.png', './icon-512.png', './icon-1024.png'
