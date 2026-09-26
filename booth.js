@@ -582,12 +582,18 @@
     }
   }
 
-  // Keeps the iPad awake between guests.
+  // Keeps the iPad awake between guests. The browser releases the lock on its
+  // own when the page hides, so re-request on the way back — but only when we
+  // are not already holding a live one.
   var wakeLock = null;
   async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    if (wakeLock && !wakeLock.released) return;
     try {
-      if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
-    } catch (e) {}
+      wakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) {
+      wakeLock = null;
+    }
   }
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') requestWakeLock();
