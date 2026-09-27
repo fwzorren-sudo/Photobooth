@@ -169,7 +169,7 @@
     row(list, 'Screen', window.innerWidth + ' x ' + window.innerHeight + ' css px');
   }
 
-  $('load').addEventListener('click', function () {
+  function loadRemote() {
     var url = $('src').value.trim();
     var note = $('remoteNote');
     var img = $('remote');
@@ -186,7 +186,16 @@
         + 'serving it as a download rather than an image.';
     };
     img.src = url;
-  });
+  }
+
+  $('load').addEventListener('click', loadRemote);
+
+  // ?src=<encoded url> pre-fills and loads, so the link can be tapped on a
+  // phone instead of typed into it.
+  try {
+    var preset = new URLSearchParams(location.search).get('src');
+    if (preset) { $('src').value = preset; loadRemote(); }
+  } catch (e) { /* no URLSearchParams: the paste box still works */ }
 
   $('share').addEventListener('click', async function () {
     var note = $('shareNote');
