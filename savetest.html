@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Save-path check</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #eef4fa; --surface: #fff; --ink: #16324a; --soft: #5b7a95;
+    --line: #cfe0ee; --accent: #2f86bf; --ok: #1a7f4b; --no: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101a24; --surface:#18242f; --ink:#e8f0f7; --soft:#9db3c4;
+            --line:#263947; --accent:#5fb0e0; --ok:#4cc38a; --no:#f2705f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px 16px 48px; background:var(--bg); color:var(--ink);
+         font:16px/1.5 -apple-system, system-ui, sans-serif; }
+  .wrap { max-width: 34rem; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font-size:1.5rem; margin:0; }
+  h2 { font-size:1.05rem; margin:0 0 4px; }
+  p  { margin:0; color:var(--soft); font-size:.95rem; }
+  section { background:var(--surface); border:1px solid var(--line);
+            border-radius:14px; padding:16px; display:grid; gap:10px; }
+  .step { font:600 .75rem/1 -apple-system, system-ui, sans-serif; letter-spacing:.08em;
+          text-transform:uppercase; color:var(--accent); }
+  img { max-width:100%; border-radius:10px; display:block; background:var(--bg); }
+  button, input { font:inherit; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:10px;
+           padding:12px 18px; font-weight:600; }
+  button:disabled { opacity:.4; }
+  input { width:100%; padding:11px 12px; border:1px solid var(--line);
+          border-radius:10px; background:var(--bg); color:var(--ink); }
+  dl { margin:0; display:grid; grid-template-columns:1fr auto; gap:6px 12px; font-size:.9rem; }
+  dt { color:var(--soft); }
+  dd { margin:0; font-weight:600; font-variant-numeric:tabular-nums; }
+  .yes { color:var(--ok); } .nope { color:var(--no); }
+  code { font:.85rem ui-monospace, Menlo, monospace; background:var(--bg);
+         padding:2px 5px; border-radius:5px; word-break:break-all; }
+  ol { margin:0; padding-left:1.2em; font-size:.95rem; color:var(--soft); }
+  li { margin:.35em 0; }
+  li strong { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Save-path check</h1>
+    <p>Open this on the iPhone or iPad. Each section tests one way a guest might
+       save their photo, so we find out which ones actually reach Photos.</p>
+  </header>
+
+  <section>
+    <div class="step">Environment</div>
+    <dl id="env"></dl>
+  </section>
+
+  <section>
+    <div class="step">Test 1 &middot; a real https image</div>
+    <h2>Long-press this image</h2>
+    <p>Paste a signed B2 URL and load it. Then press and hold the image.
+       Does the menu offer <strong>Add to Photos</strong>?</p>
+    <input id="src" type="url" inputmode="url" autocapitalize="off" autocorrect="off"
+           placeholder="https://bucket.s3.us-west-004.backblazeb2.com/test.jpg?X-Amz-...">
+    <button id="load">Load it</button>
+    <img id="remote" alt="" hidden>
+    <p id="remoteNote"></p>
+  </section>
+
+  <section>
+    <div class="step">Test 2 &middot; a blob: URL</div>
+    <h2>Long-press this one too</h2>
+    <p>This is drawn in the page and shown from a <code>blob:</code> URL &mdash; exactly
+       how the booth shows a finished strip today. If <strong>Add to Photos</strong> is
+       missing here but present in test 1, the booth is telling guests to do something
+       that does not work.</p>
+    <img id="blobImg" alt="Generated test image">
+  </section>
+
+  <section>
+    <div class="step">Test 3 &middot; the share sheet</div>
+    <h2>Share, then Save Image</h2>
+    <p>This is the path the booth prefers. It needs no CORS, because the image is
+       made here rather than fetched.</p>
+    <button id="share">Share the test image</button>
+    <p id="shareNote"></p>
+  </section>
+
+  <section>
+    <div class="step">What to report back</div>
+    <ol>
+      <li>Everything in <strong>Environment</strong></li>
+      <li>Test 1 &mdash; did long-press offer <strong>Add to Photos</strong>?</li>
+      <li>Test 2 &mdash; same question, for the blob image</li>
+      <li>Test 3 &mdash; did the sheet open, and was <strong>Save Image</strong> there?</li>
+      <li>Then add this page to your Home Screen, open it from there, and run
+          tests 2 and 3 again &mdash; that is the Web Clip case, where the answers
+          can differ</li>
+    </ol>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+
+  function row(list, label, value, good) {
+    var dt = document.createElement('dt'); dt.textContent = label;
+    var dd = document.createElement('dd'); dd.textContent = value;
+    if (good === true) dd.className = 'yes';
+    if (good === false) dd.className = 'nope';
+    list.appendChild(dt); list.appendChild(dd);
+  }
+
+  // --- a small image made here, so tests 2 and 3 need no network ----------
+  var canvas = document.createElement('canvas');
+  canvas.width = 720; canvas.height = 540;
+  var ctx = canvas.getContext('2d');
+  var sky = ctx.createLinearGradient(0, 0, 0, 540);
+  sky.addColorStop(0, '#bfe0f5'); sky.addColorStop(1, '#ffffff');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, 720, 540);
+  ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 10;
+  ctx.strokeRect(18, 18, 684, 504);
+  ctx.fillStyle = '#16324a';
+  ctx.font = '600 44px -apple-system, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Photo booth', 360, 250);
+  ctx.font = '400 26px -apple-system, system-ui, sans-serif';
+  ctx.fillStyle = '#5b7a95';
+  ctx.fillText('save-path test image', 360, 296);
+
+  var testBlob = null;
+  canvas.toBlob(function (blob) {
+    testBlob = blob;
+    $('blobImg').src = URL.createObjectURL(blob);
+    report();
+  }, 'image/jpeg', 0.92);
+
+  function report() {
+    var list = $('env');
+    list.textContent = '';
+
+    var standalone = !!(window.navigator.standalone
+      || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+    row(list, 'Launched from Home Screen', standalone ? 'yes (Web Clip)' : 'no (Safari tab)');
+    row(list, 'Secure context', window.isSecureContext ? 'yes' : 'no', window.isSecureContext);
+    row(list, 'navigator.share', typeof navigator.share === 'function' ? 'present' : 'missing',
+        typeof navigator.share === 'function');
+    row(list, 'navigator.canShare', typeof navigator.canShare === 'function' ? 'present' : 'missing',
+        typeof navigator.canShare === 'function');
+
+    var fileOk = false;
+    if (testBlob && navigator.canShare) {
+      try {
+        fileOk = navigator.canShare({
+          files: [new File([testBlob], 'booth-test.jpg', { type: 'image/jpeg' })]
+        });
+      } catch (e) { fileOk = false; }
+    }
+    row(list, 'canShare({ files })', fileOk ? 'true' : 'false', fileOk);
+    $('share').disabled = !fileOk;
+    if (!fileOk) {
+      $('shareNote').textContent =
+        'This device or context will not share files, so the booth would hide its Share button here.';
+    }
+    row(list, 'Screen', window.innerWidth + ' x ' + window.innerHeight + ' css px');
+  }
+
+  $('load').addEventListener('click', function () {
+    var url = $('src').value.trim();
+    var note = $('remoteNote');
+    var img = $('remote');
+    if (!url) { note.textContent = 'Paste a URL first.'; return; }
+    note.textContent = 'Loading…';
+    img.hidden = true;
+    img.onload = function () {
+      img.hidden = false;
+      note.textContent = 'Loaded, ' + img.naturalWidth + ' x ' + img.naturalHeight
+        + '. Now press and hold it.';
+    };
+    img.onerror = function () {
+      note.textContent = 'Did not load. The link may have expired, or B2 may be '
+        + 'serving it as a download rather than an image.';
+    };
+    img.src = url;
+  });
+
+  $('share').addEventListener('click', async function () {
+    var note = $('shareNote');
+    try {
+      await navigator.share({
+        files: [new File([testBlob], 'booth-test.jpg', { type: 'image/jpeg' })],
+        text: 'Photo booth save-path test'
+      });
+      note.textContent = 'Sheet closed. Did it offer Save Image, and did the photo land in Photos?';
+    } catch (e) {
+      note.textContent = e && e.name === 'AbortError'
+        ? 'You dismissed the sheet — that still counts as the sheet opening.'
+        : 'Share failed: ' + (e && e.name ? e.name : 'unknown') + '. That is a real result, note it.';
+    }
+  });
+})();
+</script>
+</body>
+</html>
