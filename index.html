@@ -250,6 +250,8 @@
     font-size: clamp(13px, 2.1vh, 20px);
   }
   .pill.on { background: var(--accent); color: var(--accent-ink); border-color: var(--border-on-accent); }
+  /* English under the Spanish on every guest-facing control. */
+  .pill .sub { display: block; font-size: .72em; font-weight: 600; opacity: .8; line-height: 1.15; }
 
   .icon-btn {
     width: 44px; height: 44px; border-radius: 50%;
@@ -320,12 +322,13 @@
   .row::-webkit-scrollbar { display: none; }
 
   .swatch {
-    flex: 0 0 auto; width: 104px; height: 74px; border-radius: 18px;
+    flex: 0 0 auto; width: 104px; height: 88px; border-radius: 18px;
     background: var(--surface); border: 2px solid var(--border);
     color: var(--ink);
     display: grid; place-items: center; gap: 2px; font-size: 14px; font-weight: 700;
   }
-  .swatch .emoji { font-size: 28px; }
+  .swatch .emoji { font-size: 26px; }
+  .swatch .sub { display: block; font-size: .78em; font-weight: 600; opacity: .8; line-height: 1.15; }
   .swatch.on { background: var(--accent); color: var(--accent-ink); border-color: var(--border-on-accent); }
 
   .prop-btn {
@@ -468,7 +471,7 @@
         <div class="row" id="filterRow"></div>
         <div class="tray-head" id="propCats"></div>
         <div class="row" id="propRow"></div>
-        <div class="hint">Arrastra para mover · pellizca para crecer · toca dos veces para quitar</div>
+        <div class="hint">Arrastra para mover · pellizca para crecer · toca dos veces para quitar<br>Drag to move · pinch to resize · double-tap to remove</div>
       </div>
       <button class="btn primary huge" id="shootBtn" style="flex:0 0 auto">
         <span id="shootLabel">¡Foto!<span class="sub">Shoot</span></span>
@@ -502,33 +505,33 @@
       </div>
       <div class="sign-tools">
         <div class="sign-colors" id="signColors"></div>
-        <button class="btn" id="signUndo">↶ Deshacer</button>
-        <button class="btn" id="signClear">Limpiar</button>
-        <button class="btn" id="signCancel">Cancelar</button>
-        <button class="btn primary" id="signDone">✓ Listo</button>
+        <button class="btn" id="signUndo">↶ Deshacer<span class="sub">Undo</span></button>
+        <button class="btn" id="signClear">Limpiar<span class="sub">Clear</span></button>
+        <button class="btn" id="signCancel">Cancelar<span class="sub">Cancel</span></button>
+        <button class="btn primary" id="signDone">✓ Listo<span class="sub">Done</span></button>
       </div>
     </div>
   </div>
 
   <div class="modal hidden" id="pinModal">
     <div class="sheet" style="max-width:360px">
-      <h2>🔒 Ajustes de la cabina</h2>
+      <h2>🔒 Booth settings</h2>
       <label>PIN <input type="password" inputmode="numeric" id="pinInput" style="width:130px"></label>
-      <p class="note" id="pinError" style="color:#c0392b; display:none">PIN incorrecto</p>
+      <p class="note" id="pinError" style="color:#c0392b; display:none">Wrong PIN</p>
       <div class="sheet-actions">
-        <button class="btn" id="pinCancel">Cancelar</button>
-        <button class="btn primary" id="pinOk">Entrar</button>
+        <button class="btn" id="pinCancel">Cancel</button>
+        <button class="btn primary" id="pinOk">Enter</button>
       </div>
     </div>
   </div>
 
   <div class="modal hidden" id="adminModal">
     <div class="sheet">
-      <h2>Ajustes de la cabina</h2>
+      <h2>Booth settings</h2>
       <div id="adminBody"></div>
       <div class="sheet-actions">
-        <button class="btn" id="adminReset">Restablecer</button>
-        <button class="btn primary" id="adminDone">Listo</button>
+        <button class="btn" id="adminReset">Reset</button>
+        <button class="btn primary" id="adminDone">Done</button>
       </div>
     </div>
   </div>
@@ -536,6 +539,7 @@
 
 <script src="qrcode.js"></script>
 <script src="gif.js"></script>
+<script src="share.js"></script>
 <script src="booth.js"></script>
 </body>
 </html>

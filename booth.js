@@ -42,7 +42,13 @@
     enableSign: true,
     /// Monogram burned into every keepsake. A data URL, set from the admin
     /// panel so it is same-origin and never taints the canvas.
-    monogram: ''
+    monogram: '',
+    /// Origin of the handoff Worker, e.g. https://quince-booth-share.you.workers.dev
+    /// Empty falls back to the album QR, which is what this build did before.
+    uploadUrl: '',
+    /// Shared secret the Worker checks on upload. A web page cannot keep a
+    /// secret, so this is a speed bump, not a lock -- see mdm/README.md.
+    uploadKey: ''
   };
 
   var STORAGE_KEY = 'booth.config.v1';
@@ -51,7 +57,7 @@
   var URL_KEYS = {
     name: 'celebrantName', date: 'eventDate', tag: 'hashtag',
     accent: 'accent', secondary: 'secondary', pin: 'adminPIN', theme: 'theme',
-    album: 'albumUrl',
+    album: 'albumUrl', upload: 'uploadUrl', ukey: 'uploadKey',
     countdown: 'countdownSeconds', shots: 'stripShotCount', idle: 'idleResetSeconds'
   };
 
@@ -136,28 +142,31 @@
 
   // Every look is a plain CSS filter string, used verbatim for both the live
   // preview and the canvas render. That is what keeps the two identical.
+  // Every guest-facing control carries its English underneath: roughly half the
+  // guests read one language, half the other, and nobody should have to guess
+  // which pill does what.
   var FILTERS = [
-    { id: 'none', title: 'Original', emoji: '🌈', css: 'none' },
-    { id: 'noir', title: 'B y N', emoji: '⚫️', css: 'grayscale(1) contrast(1.12)' },
-    { id: 'vintage', title: 'Vintage', emoji: '🟤', css: 'sepia(.8) saturate(1.15) contrast(1.05) brightness(1.02)' },
-    { id: 'glow', title: 'Brillo', emoji: '✨', css: 'brightness(1.12) saturate(1.12) contrast(.92) blur(.4px)' },
-    { id: 'rosa', title: 'Rosa', emoji: '🌸', css: 'saturate(1.3) hue-rotate(-12deg) brightness(1.05)' },
-    { id: 'vivid', title: 'Vívido', emoji: '🔆', css: 'saturate(1.5) contrast(1.15)' },
-    { id: 'frio', title: 'Frío', emoji: '❄️', css: 'hue-rotate(18deg) saturate(1.2) brightness(1.04)' }
+    { id: 'none', title: 'Original', sub: 'No filter', emoji: '🌈', css: 'none' },
+    { id: 'noir', title: 'B y N', sub: 'B&W', emoji: '⚫️', css: 'grayscale(1) contrast(1.12)' },
+    { id: 'vintage', title: 'Vintage', sub: 'Sepia', emoji: '🟤', css: 'sepia(.8) saturate(1.15) contrast(1.05) brightness(1.02)' },
+    { id: 'glow', title: 'Brillo', sub: 'Glow', emoji: '✨', css: 'brightness(1.12) saturate(1.12) contrast(.92) blur(.4px)' },
+    { id: 'rosa', title: 'Rosa', sub: 'Rose', emoji: '🌸', css: 'saturate(1.3) hue-rotate(-12deg) brightness(1.05)' },
+    { id: 'vivid', title: 'Vívido', sub: 'Vivid', emoji: '🔆', css: 'saturate(1.5) contrast(1.15)' },
+    { id: 'frio', title: 'Frío', sub: 'Cool', emoji: '❄️', css: 'hue-rotate(18deg) saturate(1.2) brightness(1.04)' }
   ];
 
   var PROP_CATEGORIES = [
-    { id: 'corona', title: 'Corona', glyphs: ['👑', '👸', '💎', '🎀', '🌹', '🪮'] },
-    { id: 'cara', title: 'Cara', glyphs: ['🕶️', '🤓', '🥸', '💋', '😎', '🤠', '🎭', '🦄'] },
-    { id: 'fiesta', title: 'Fiesta', glyphs: ['🎉', '🎊', '🪅', '🎈', '🥳', '💃', '🕺', '🎸'] },
-    { id: 'amor', title: 'Amor', glyphs: ['💖', '✨', '⭐️', '💫', '🌟', '🦋', '🌸', '🍰'] }
+    { id: 'corona', title: 'Corona', sub: 'Crowns', glyphs: ['👑', '👸', '💎', '🎀', '🌹', '🪮'] },
+    { id: 'cara', title: 'Cara', sub: 'Faces', glyphs: ['🕶️', '🤓', '🥸', '💋', '😎', '🤠', '🎭', '🦄'] },
+    { id: 'fiesta', title: 'Fiesta', sub: 'Party', glyphs: ['🎉', '🎊', '🪅', '🎈', '🥳', '💃', '🕺', '🎸'] },
+    { id: 'amor', title: 'Amor', sub: 'Love', glyphs: ['💖', '✨', '⭐️', '💫', '🌟', '🦋', '🌸', '🍰'] }
   ];
 
   var MODES = {
-    strip: { title: 'Tira de Fotos', emoji: '🎞️', shoot: '¡Foto!', shootSub: 'Shoot' },
-    single: { title: 'Foto', emoji: '📸', shoot: '¡Foto!', shootSub: 'Shoot' },
-    boomerang: { title: 'Boomerang', emoji: '🔁', shoot: '¡Grabar!', shootSub: 'Record' },
-    video: { title: 'Mensaje', emoji: '🎥', shoot: '¡Grabar!', shootSub: 'Record a message' }
+    strip: { title: 'Tira de Fotos', sub: 'Photo strip', emoji: '🎞️', shoot: '¡Foto!', shootSub: 'Shoot' },
+    single: { title: 'Foto', sub: 'Single photo', emoji: '📸', shoot: '¡Foto!', shootSub: 'Shoot' },
+    boomerang: { title: 'Boomerang', sub: 'GIF loop', emoji: '🔁', shoot: '¡Grabar!', shootSub: 'Record' },
+    video: { title: 'Mensaje', sub: 'Video message', emoji: '🎥', shoot: '¡Grabar!', shootSub: 'Record a message' }
   };
 
   var BOOMERANG = { frames: 14, interval: 1000 / 12, delay: 0.07, width: 480 };
@@ -273,11 +282,13 @@
 
   var speech = window.speechSynthesis;
   var spanishVoice = null;
+  var englishVoice = null;
 
   function pickVoice() {
     if (!speech || !speech.getVoices) return;
     var voices = speech.getVoices() || [];
     spanishVoice = voices.filter(function (v) { return /^es/i.test(v.lang || ''); })[0] || null;
+    englishVoice = voices.filter(function (v) { return /^en/i.test(v.lang || ''); })[0] || null;
   }
 
   if (speech) {
@@ -289,19 +300,42 @@
   var SPANISH_NUMBERS = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco',
                          'seis', 'siete', 'ocho', 'nueve', 'diez'];
 
+  /** Queues one utterance. Callers cancel first when they need to cut in. */
+  function enqueue(text, lang, voice) {
+    var utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    if (voice) utterance.voice = voice;
+    utterance.rate = 1.05;
+    utterance.pitch = 1.05;
+    speech.speak(utterance);
+  }
+
   function say(text) {
     if (!config.voice || !speech) return false;
     try {
       speech.cancel();
-      var utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'es-MX';
-      if (spanishVoice) utterance.voice = spanishVoice;
-      utterance.rate = 1.05;
-      utterance.pitch = 1.05;
-      speech.speak(utterance);
+      enqueue(text, 'es-MX', spanishVoice);
       return true;
     } catch (e) {
       return false;   // no speech engine: the beep still carries the countdown
+    }
+  }
+
+  /**
+   * The instruction lines, spoken Spanish then English. Counting down is
+   * understood from context in either language, so the numbers stay Spanish
+   * (see say) — but "look at the camera" is the line that actually changes how
+   * the photo comes out, and half the room doesn't speak Spanish.
+   */
+  function sayBoth(spanish, english) {
+    if (!config.voice || !speech) return false;
+    try {
+      speech.cancel();
+      enqueue(spanish, 'es-MX', spanishVoice);
+      enqueue(english, 'en-US', englishVoice);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
@@ -429,13 +463,23 @@
     window.addEventListener('offline', checkNetwork);
     checkNetwork();
 
+    // Photos waiting to upload are safe on the tablet, but the operator
+    // should know before the queue is the whole night.
+    if (window.BoothShare) {
+      window.BoothShare.onChange(function (share) {
+        setWarning('upload', share.pending
+          ? share.pending + ' sin subir · waiting to upload'
+          : null);
+      });
+    }
+
     // Battery status is unavailable in Safari; the native app covers iPad.
     if (navigator.getBattery) {
       navigator.getBattery().then(function (battery) {
         function check() {
           var percent = Math.round(battery.level * 100);
           setWarning('battery',
-            (!battery.charging && percent <= 20) ? 'Batería ' + percent + '% · Plug in' : null);
+            (!battery.charging && percent <= 20) ? 'Battery ' + percent + '% · Plug in' : null);
         }
         battery.addEventListener('levelchange', check);
         battery.addEventListener('chargingchange', check);
@@ -1072,6 +1116,19 @@
 
   // ---------------------------------------------------------------- UI build
 
+  /**
+   * Two-line control label: Spanish on top, English underneath. Built as text
+   * nodes rather than innerHTML so a label can never smuggle in markup.
+   */
+  function setPillLabel(button, main, sub) {
+    button.textContent = main;
+    if (!sub) return;
+    var span = document.createElement('span');
+    span.className = 'sub';
+    span.textContent = sub;
+    button.appendChild(span);
+  }
+
   function buildControls() {
     el.modeRow.innerHTML = '';
     var modes = enabledModes();
@@ -1080,7 +1137,7 @@
     modes.forEach(function (id) {
       var button = document.createElement('button');
       button.className = 'pill' + (state.mode === id ? ' on' : '');
-      button.textContent = MODES[id].emoji + ' ' + MODES[id].title;
+      setPillLabel(button, MODES[id].emoji + ' ' + MODES[id].title, MODES[id].sub);
       button.addEventListener('click', function () {
         state.mode = id;
         buildControls();
@@ -1096,7 +1153,13 @@
     FILTERS.forEach(function (filter) {
       var button = document.createElement('button');
       button.className = 'swatch' + (state.filter.id === filter.id ? ' on' : '');
-      button.innerHTML = '<span class="emoji">' + filter.emoji + '</span><span>' + filter.title + '</span>';
+      var glyph = document.createElement('span');
+      glyph.className = 'emoji';
+      glyph.textContent = filter.emoji;
+      var name = document.createElement('span');
+      setPillLabel(name, filter.title, filter.sub);
+      button.appendChild(glyph);
+      button.appendChild(name);
       button.addEventListener('click', function () {
         state.filter = filter;
         el.video.style.filter = filter.css;
@@ -1110,7 +1173,7 @@
     PROP_CATEGORIES.forEach(function (category) {
       var button = document.createElement('button');
       button.className = 'pill' + (state.propCategory === category.id ? ' on' : '');
-      button.textContent = category.title;
+      setPillLabel(button, category.title, category.sub);
       button.addEventListener('click', function () {
         state.propCategory = category.id;
         buildControls();
@@ -1120,7 +1183,7 @@
     if (state.props.length) {
       var clearButton = document.createElement('button');
       clearButton.className = 'pill';
-      clearButton.textContent = 'Quitar todo';
+      setPillLabel(clearButton, 'Quitar todo', 'Clear all');
       clearButton.addEventListener('click', clearProps);
       el.propCats.appendChild(clearButton);
     }
@@ -1215,7 +1278,7 @@
     state.redoIndex = -1;
     updateShotStrip();
     setPhase('shooting');
-    say('¡Miren a la cámara!');
+    sayBoth('¡Miren a la cámara!', 'Look at the camera!');
 
     try {
       if (state.mode === 'video') {
@@ -1306,7 +1369,7 @@
   }
 
   /// Renders the composed keepsake (plus any signature) to a file.
-  async function publishCanvas(canvas) {
+  async function publishCanvas(canvas, reuseCode) {
     var output = canvas;
     if (state.strokes && state.strokes.length) {
       output = document.createElement('canvas');
@@ -1319,7 +1382,7 @@
     var blob = await new Promise(function (resolve) {
       output.toBlob(resolve, 'image/jpeg', 0.92);
     });
-    finishWith(blob, 'image/jpeg', 'jpg');
+    finishWith(blob, 'image/jpeg', 'jpg', '', reuseCode);
   }
 
   /// Strokes are stored normalised, so the same gesture scales from a phone
@@ -1378,7 +1441,7 @@
     var tapToFinish = function () { finishEarly = true; };
     el.frame.addEventListener('click', tapToFinish);
 
-    say('¡Cuéntale algo bonito!');
+    sayBoth('¡Cuéntale algo bonito!', 'Say something sweet!');
     recorder.start();
 
     var total = config.videoSeconds * 1000;
@@ -1422,18 +1485,23 @@
                poster.toDataURL('image/jpeg', 0.7));
   }
 
-  function finishWith(blob, mime, extension, posterUrl) {
+  function finishWith(blob, mime, extension, posterUrl, reuseCode) {
     if (state.result && state.result.url) URL.revokeObjectURL(state.result.url);
     var stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // The code is picked here, before anything is uploaded, so the QR can go
+    // up immediately and the upload never blocks the guest.
+    var code = reuseCode || (window.BoothShare && window.BoothShare.newCode()) || '';
     state.result = {
       blob: blob,
       mime: mime,
       mode: state.mode,
+      code: code,
       isVideo: mime.indexOf('video/') === 0,
       url: URL.createObjectURL(blob),
       posterUrl: posterUrl || '',
       filename: 'photobooth-' + stamp + '.' + extension
     };
+    keepKeepsake();
 
     el.resultImg.classList.toggle('hidden', state.result.isVideo);
     el.resultVideo.classList.toggle('hidden', !state.result.isVideo);
@@ -1448,6 +1516,21 @@
     buildRedoRow();
     showOverlay('');
     setPhase('review');
+  }
+
+  /**
+   * Hands the finished keepsake to the store, which persists it and starts
+   * the upload. Fire and forget: the guest is already looking at their photo,
+   * and a failure here shows up as an operator warning rather than as
+   * anything the guest has to care about.
+   */
+  function keepKeepsake() {
+    if (!window.BoothShare || !state.result || !state.result.code) return;
+    window.BoothShare.save(state.result.code, state.result.blob, {
+      mime: state.result.mime,
+      mode: state.result.mode,
+      filename: state.result.filename
+    });
   }
 
   // ---------------------------------------------------------------- signing
@@ -1551,7 +1634,11 @@
     el.signDone.addEventListener('click', async function () {
       state.strokes = signState.strokes.map(cloneStroke);
       closeSignSheet();
-      if (state.composed) await publishCanvas(state.composed);
+      // Reuse the code so a guest who already scanned the QR gets the
+      // signed version rather than the one from before they signed.
+      if (state.composed) {
+        await publishCanvas(state.composed, state.result && state.result.code);
+      }
     });
 
     window.addEventListener('resize', function () {
@@ -1595,7 +1682,7 @@
     state.redoIndex = index;
     state.shotIndex = index;
     setPhase('shooting');
-    say('¡Otra vez!');
+    sayBoth('¡Otra vez!', 'One more!');
 
     try {
       if (!(await runCountdown(Math.max(2, config.countdownSeconds - 1)))) {
@@ -1620,19 +1707,39 @@
     }
   }
 
+  function qrCard(url, title, subtitle) {
+    var svg = qrSvg(url);
+    if (!svg) return;
+    var card = document.createElement('div');
+    card.className = 'album-card';
+    var qr = document.createElement('div');
+    qr.className = 'qr';
+    qr.innerHTML = svg;                       // built here from a fixed grid
+    var heading = document.createElement('div');
+    heading.className = 'qr-title';
+    heading.textContent = title;
+    var sub = document.createElement('div');
+    sub.className = 'qr-sub';
+    sub.textContent = subtitle;
+    card.appendChild(qr);
+    card.appendChild(heading);
+    card.appendChild(sub);
+    el.actionPane.appendChild(card);
+  }
+
   function buildActions() {
     el.actionPane.innerHTML = '';
 
-    var album = albumLink();
-    if (album) {
-      var svg = qrSvg(album);
-      if (svg) {
-        var card = document.createElement('div');
-        card.className = 'album-card';
-        card.innerHTML = '<div class="qr">' + svg + '</div>' +
-          '<div class="qr-title">Escanea para todas las fotos</div>' +
-          '<div class="qr-sub">Scan for every photo from tonight</div>';
-        el.actionPane.appendChild(card);
+    // A QR for this one photo when the handoff Worker is configured,
+    // otherwise the album QR this build has always shown.
+    var mine = state.result.code && window.BoothShare
+      ? window.BoothShare.linkFor(state.result.code) : '';
+    if (mine) {
+      qrCard(mine, 'Escanea para llevártela', 'Scan to take this one home');
+    } else {
+      var album = albumLink();
+      if (album) {
+        qrCard(album, 'Escanea para todas las fotos', 'Scan for every photo from tonight');
       }
     }
 
@@ -1674,7 +1781,9 @@
     hint.style.textAlign = 'center';
     hint.textContent = state.result.isVideo
       ? 'Guarda o comparte el mensaje antes de terminar — no se queda en la tablet.'
-      : 'Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.';
+        + '  ·  Save or share the message before you finish — it does not stay on the tablet.'
+      : 'Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.'
+        + '  ·  To keep it: press and hold the photo, then Add to Photos.';
     el.actionPane.appendChild(hint);
 
     var spacer = document.createElement('div');
@@ -1747,30 +1856,35 @@
 
   // ---------------------------------------------------------------- admin
 
+  // Operator-facing, so English: whoever runs the booth is reading this in a
+  // dim room with a queue forming, and no guest ever sees this panel.
   var ADMIN_FIELDS = [
-    { group: 'Evento', key: 'celebrantName', label: 'Quinceañera', type: 'text' },
-    { key: 'eventDate', label: 'Fecha', type: 'text' },
+    { group: 'Event', key: 'celebrantName', label: 'Quinceañera', type: 'text' },
+    { key: 'eventDate', label: 'Date', type: 'text' },
     { key: 'hashtag', label: 'Hashtag', type: 'text' },
-    { group: 'Colores', key: 'theme', label: 'Tema', type: 'choice',
-      options: [['light', 'Claro · Light'], ['dark', 'Oscuro · Dark']] },
-    { key: 'accent', label: 'Color principal', type: 'text', placeholder: 'auto' },
-    { key: 'secondary', label: 'Color secundario', type: 'text', placeholder: 'auto' },
-    { group: 'Modos', key: 'enableStrip', label: 'Tira de fotos', type: 'bool' },
-    { key: 'enableSingle', label: 'Foto sencilla', type: 'bool' },
+    { group: 'Colors', key: 'theme', label: 'Theme', type: 'choice',
+      options: [['light', 'Light'], ['dark', 'Dark']] },
+    { key: 'accent', label: 'Main color', type: 'text', placeholder: 'auto' },
+    { key: 'secondary', label: 'Secondary color', type: 'text', placeholder: 'auto' },
+    { group: 'Modes', key: 'enableStrip', label: 'Photo strip', type: 'bool' },
+    { key: 'enableSingle', label: 'Single photo', type: 'bool' },
     { key: 'enableBoomerang', label: 'Boomerang GIF', type: 'bool' },
-    { group: 'Captura', key: 'countdownSeconds', label: 'Cuenta regresiva (s)', type: 'number', min: 1, max: 10 },
-    { key: 'stripShotCount', label: 'Fotos por tira', type: 'number', min: 2, max: 6 },
-    { key: 'idleResetSeconds', label: 'Reinicio automático (s)', type: 'number', min: 15, max: 600 },
-    { group: 'Cabina', key: 'voice', label: 'Cuenta regresiva hablada', type: 'bool' },
-    { key: 'enableVideo', label: 'Mensaje en video', type: 'bool' },
-    { key: 'videoSeconds', label: 'Duración del mensaje (s)', type: 'number', min: 5, max: 60 },
-    { key: 'enableSign', label: 'Permitir firmar la foto', type: 'bool' },
-    { group: 'Monograma', key: 'monogram', label: 'Imagen', type: 'file' },
-    { key: 'slideshow', label: 'Mostrar fotos de la noche', type: 'bool' },
-    { group: 'Compartir', key: 'enableShare', label: 'Botón compartir', type: 'bool' },
-    { key: 'enablePrint', label: 'Imprimir (AirPrint)', type: 'bool' },
-    { group: 'Álbum', key: 'albumUrl', label: 'Enlace del álbum', type: 'text', placeholder: 'https://…' },
-    { group: 'Seguridad', key: 'adminPIN', label: 'PIN', type: 'text' }
+    { group: 'Capture', key: 'countdownSeconds', label: 'Countdown (s)', type: 'number', min: 1, max: 10 },
+    { key: 'stripShotCount', label: 'Shots per strip', type: 'number', min: 2, max: 6 },
+    { key: 'idleResetSeconds', label: 'Auto-reset (s)', type: 'number', min: 15, max: 600 },
+    { group: 'Booth', key: 'voice', label: 'Spoken countdown', type: 'bool' },
+    { key: 'enableVideo', label: 'Video message', type: 'bool' },
+    { key: 'videoSeconds', label: 'Message length (s)', type: 'number', min: 5, max: 60 },
+    { key: 'enableSign', label: 'Let guests sign the photo', type: 'bool' },
+    { group: 'Monogram', key: 'monogram', label: 'Image', type: 'file' },
+    { key: 'slideshow', label: "Show tonight's photos", type: 'bool' },
+    { group: 'Sharing', key: 'enableShare', label: 'Share button', type: 'bool' },
+    { key: 'enablePrint', label: 'Print (AirPrint)', type: 'bool' },
+    { group: 'Album', key: 'albumUrl', label: 'Album link', type: 'text', placeholder: 'https://…' },
+    { group: 'Photo handoff', key: 'uploadUrl', label: 'Worker URL', type: 'text',
+      placeholder: 'https://….workers.dev' },
+    { key: 'uploadKey', label: 'Booth key', type: 'text' },
+    { group: 'Security', key: 'adminPIN', label: 'PIN', type: 'text' }
   ];
 
   function buildAdmin() {
@@ -1880,7 +1994,8 @@
 
     var note = document.createElement('p');
     note.className = 'note';
-    note.textContent = 'Deja los colores en blanco para usar los del tema. Restablecer borra los ajustes de este dispositivo y vuelve a los valores del enlace (los parámetros de la URL que envía tu MDM).';
+    note.textContent = 'Leave the colors blank to use the theme\u2019s own. Reset clears this '
+      + 'device\u2019s settings and returns to the values from the link (the URL parameters your MDM sends).';
     el.adminBody.appendChild(note);
   }
 
@@ -1951,6 +2066,13 @@
       if (event.target !== el.resultImg) event.preventDefault();
     });
     document.addEventListener('gesturestart', function (event) { event.preventDefault(); });
+  }
+
+  if (window.BoothShare) {
+    window.BoothShare.init({
+      uploadBase: config.uploadUrl,
+      uploadKey: config.uploadKey
+    });
   }
 
   applyTheme();
