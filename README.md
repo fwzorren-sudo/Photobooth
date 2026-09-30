@@ -2,10 +2,11 @@
 
 A kiosk photo booth that runs in a browser. Stand an iPad in a corner, and
 guests take their own photo strips, single shots and looping boomerang GIFs
-with filters and emoji props — no attendant, no app store, no accounts.
+with filters and props — no attendant, no app store, no accounts.
 
-Everything happens on the device. **Photos are never uploaded anywhere**, there
-is no backend, and the whole thing works offline after the first load.
+Everything happens on the device. Nothing leaves the iPad unless you
+deliberately wire up the photo handoff below, and the whole thing works
+offline after the first load.
 
 ## Use it
 
@@ -15,23 +16,67 @@ Open the page, allow the camera once, and tap to start. Guests get:
 - **Foto** — a single framed photo
 - **Boomerang** — a looping GIF, encoded in the browser
 
-…plus seven filters and emoji props they drag, pinch and twist onto the frame.
-Drop a prop with a tap, double-tap it to remove it.
+…plus seven filters and a tray of props they drag, pinch and twist onto the
+frame. Drop a prop with a tap, double-tap it to remove it.
 
-Set `album` to a shared-album link and the review screen shows a QR code for
-it. Guests scan once and get every photo from the night. **This is how guests
-take photos home from the web booth** — a static site has no server at the
-venue, so it cannot hand a file straight to someone else's phone the way the
-native iPad app can.
+### Props
 
-There is also a **video guestbook** mode for a short spoken message, a
-**Firmar** button that lets guests sign their photo with a finger before
-saving, and a **monogram** image (picked in the admin panel) drawn as a crest
-above the name on everything the booth makes. The monogram stays on the
-device — it is never committed here.
+Each category leads with real artwork — crowns, tiaras, a sash, a sceptre, a
+masquerade mask — and falls back to emoji after it. Drop your own in
+[`props/`](props/README.md): a file plus a line of JSON, no code change.
 
-Video messages live only in memory in this build, since a static site has no
-disk: save or share one before leaving the review screen.
+Props are **data, not pixels**. Nothing is burned in until the keepsake is
+published, which means two things guests notice:
+
+- **Decorar** on the review screen reopens each frame of a strip on its own,
+  large enough to aim at, so all four can be decorated differently instead of
+  carrying one set repeated four times.
+- **A la cara** finds the faces in a frame and fits the crowns, tiaras and
+  masks onto them — right size, right angle, one per head. Everything is
+  measured in eye-widths, so leaning towards the lens gets you a bigger crown
+  and a tilted head gets a tilted one. Anything can still be dragged
+  afterwards, and if no face is found the prop simply lands in the middle.
+
+Face detection is BlazeFace via TensorFlow.js, vendored under `vendor/tfjs`
+so it needs no network. It loads lazily, on the first tap that wants a face,
+and if it cannot load — or finds nobody — props are placed by hand exactly as
+before. It is a convenience, never a dependency.
+
+Open [`facecheck.html`](facecheck.html) to see what the detector sees: the box,
+the landmarks, and a crown placed by the same code the booth uses. Worth
+running in the actual room, under the actual lighting, before the party.
+
+### Signing
+
+**Firmar** lets a guest sign with a finger. It opens a wide band by default,
+because the whole strip scaled to fit a tablet is about an inch and a half
+across — far too small to write anything legible on. The handwriting is
+composed inside the keepsake's own border. *Toda la tira* is there for anyone
+who would rather write across the photos themselves, at full width with the
+strip scrolling under their hand.
+
+### Taking photos home
+
+Two ways, and you can use either or both:
+
+- **Photo handoff.** Point `upload` at a small Worker (not included here) and
+  each finished keepsake gets its own QR code on the review screen. A guest
+  scans it and the photo opens on their phone. The QR goes up immediately,
+  before the upload finishes, so nobody waits. Photos are kept on the device
+  in the meantime and retried if the Wi-Fi drops.
+- **Shared album.** Set `album` to a shared-album link and the review screen
+  shows a QR for it instead. One scan, every photo from the night — but only
+  if somebody actually uploads them afterwards; the booth does not fill it.
+
+With neither set, guests still get **Descargar** and the iOS share sheet, and
+nothing is ever sent anywhere.
+
+### The rest
+
+There is a **video guestbook** mode for a short spoken message, and a
+**monogram** image (picked in the admin panel) drawn as a crest above the name
+on everything the booth makes. The monogram stays on the device — it is never
+committed here.
 
 The countdown is spoken out loud in Spanish and a "stand here" oval shows while
 guests get into position, so they look at the lens instead of down at the
@@ -62,6 +107,8 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `theme` | `light` or `dark` | Booth chrome; the keepsake stays light either way |
 | `accent` / `secondary` | `%232F86BF` | Override the theme colours, `#RRGGBB` |
 | `album` | `https%3A%2F%2Fphotos.app.goo.gl%2F…` | Shared-album link; shown as a QR on the review screen |
+| `upload` | `https%3A%2F%2F….workers.dev` | Photo-handoff Worker; gives each photo its own QR |
+| `ukey` | `…` | Key the booth sends with an upload |
 | `pin` | `1515` | PIN for the settings panel |
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |
@@ -72,6 +119,10 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
 
 URL-encode accents and spaces. Anything you leave out keeps its default.
+
+`ukey` is not a secret. It ships in the page of any booth that uses it, so
+treat it as a nuisance filter rather than a lock, and give the Worker its own
+narrow permissions.
 
 The booth is light blue and white with gold trim out of the box. Leave
 `accent` and `secondary` off unless you want different colours; `theme=dark`
@@ -84,16 +135,17 @@ Open the configured URL in Safari, then **Share → Add to Home Screen**. It
 launches full-screen with no browser chrome. Managing a fleet? Push it as a
 Web Clip profile from your MDM instead.
 
-Before the party: open it once, allow the camera, and put the iPad on Do Not
+Before the party: open it once so everything caches (the face model is about
+1.5MB and only downloads once), allow the camera, and put the iPad on Do Not
 Disturb. Use **Guided Access** (Settings → Accessibility → Guided Access) to
 lock guests into the booth — triple-click the top button to start it.
 
 ### Operator settings
 
 **Press and hold the top-left corner for three seconds** and enter the PIN
-(default `1515`). You can change the name, date, colours, modes, countdown and
-shots per strip on the device. Those edits override the URL until you tap
-*Restablecer*.
+(default `1515`). You can change the name, date, hashtag, colours, modes,
+countdown and shots per strip on the device. Those edits override the URL
+until you tap *Restablecer*.
 
 ## Run it locally
 
@@ -117,9 +169,17 @@ decoder (including the dictionary-overflow and code-width-growth paths), then
 encode a full GIF and decode it back to confirm every frame matches the
 quantizer byte for byte.
 
+The browser-level tests — camera, filters, props, signing, face anchoring, the
+photo handoff — live with the private build and run against headless Chromium
+with a fake camera. One thing they cannot cover: **no camera in a build
+environment contains a real face**, so whether the detector actually finds one
+in your room is what `facecheck.html` is for.
+
 ## Notes
 
 - Guest-facing text is Spanish with an English line underneath.
 - Designed for a landscape iPad; it degrades to a stacked layout on phones.
 - The preview and the saved photo run through the same render path, so the
   filter and props a guest arranges on screen are exactly what comes out.
+- Keepsakes are kept on the device (IndexedDB) so the welcome-screen slideshow
+  and the upload queue survive a reload. Clearing site data clears them.

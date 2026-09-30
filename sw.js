@@ -1,6 +1,6 @@
 /* Cache-first service worker: once the booth has loaded, the venue Wi-Fi can
    die and the app keeps working. Bump CACHE when you change any asset. */
-var CACHE = 'quince-booth-v10';
+var CACHE = 'quince-booth-v11';
 var ASSETS = [
   './', './index.html', './booth.js', './share.js', './faces.js', './gif.js', './qrcode.js', './manifest.webmanifest',
   './icon-180.png', './icon-192.png', './icon-512.png', './icon-1024.png',
@@ -9,8 +9,9 @@ var ASSETS = [
   './props/manifest.json',
   './props/crown-gold-rose.webp', './props/crown-gold-fuchsia.webp',
   './props/tiara-silver-wide.webp', './props/tiara-silver-arch.webp',
-  './props/sash.png', './props/mask.png', './props/mustache.png',
-  './props/lips.png', './props/bubble.png'
+  './props/sash15.webp', './props/sceptre.webp', './props/num15.webp',
+  './props/mask.png', './props/mustache.png', './props/lips.png',
+  './props/bubble.png'
 ];
 
 /* Face detection: about 1.5MB of runtime and model. Kept out of ASSETS so a

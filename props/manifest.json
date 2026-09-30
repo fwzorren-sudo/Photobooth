@@ -7,14 +7,20 @@
     "anchor": { "at": "crown", "seat": 0.881, "width": 2.30 } },
   { "src": "tiara-silver-arch.webp",  "label": "Tiara real",        "sub": "Royal tiara",     "category": "corona",
     "anchor": { "at": "crown", "seat": 0.841, "width": 2.30 } },
-  { "src": "sash.png",       "label": "Banda Mis Quince", "sub": "Mis Quince sash", "category": "corona",
-    "anchor": { "at": "chest", "seat": 0.54 } },
-  { "src": "mask.png",       "label": "Antifaz",          "sub": "Masquerade mask", "category": "cara",
+  { "src": "sash15.webp",             "label": "Banda Mis 15",      "sub": "Mis 15 sash",     "category": "corona",
+    "anchor": { "at": "chest", "seat": 0.50, "width": 5.20 } },
+
+  { "src": "sceptre.webp",            "label": "Cetro",             "sub": "Sceptre",         "category": "corona" },
+
+  { "src": "mask.png",       "label": "Antifaz",  "sub": "Masquerade mask", "category": "cara",
     "anchor": { "at": "eyes", "seat": 0.50, "width": 2.85 } },
-  { "src": "mustache.png",   "label": "Bigote",           "sub": "Mustache",        "category": "cara",
+  { "src": "mustache.png",   "label": "Bigote",   "sub": "Mustache",        "category": "cara",
     "anchor": { "at": "nose", "seat": 0.38 } },
-  { "src": "lips.png",       "label": "Labios",           "sub": "Lips",            "category": "cara",
+  { "src": "lips.png",       "label": "Labios",   "sub": "Lips",            "category": "cara",
     "anchor": { "at": "mouth", "seat": 0.44, "width": 1.15 } },
-  { "src": "bubble.png",     "label": "¡QUINCE!",         "sub": "Speech bubble",   "category": "fiesta",
+
+  { "src": "num15.webp",     "label": "15",       "sub": "Diamond 15",      "category": "fiesta",
+    "anchor": { "at": "beside", "seat": 0.50, "width": 2.40 } },
+  { "src": "bubble.png",     "label": "¡QUINCE!", "sub": "Speech bubble",   "category": "fiesta",
     "anchor": { "at": "beside", "seat": 0.50 } }
 ]
