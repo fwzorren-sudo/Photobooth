@@ -185,6 +185,9 @@
   /** Double-tap window for removing a prop. */
   var DOUBLE_TAP_MS = 400;
 
+  /** How long the operator holds the corner to reach the settings. */
+  var HOLD_MS = 3000;
+
   // ---------------------------------------------------------------- state
 
   var state = {
@@ -196,6 +199,9 @@
     shotIndex: 0,
     result: null,
     propCategory: PROP_CATEGORIES[0].id,
+    /// Which tray is showing: 'filtros', or a prop category id. Only one is on
+    /// screen at a time, because two stacked rows left the camera a thumbnail.
+    tray: 'filtros',
     cancelled: false,
     /// Index of the single strip frame being reshot, or -1.
     redoIndex: -1,
@@ -208,7 +214,7 @@
 
   var el = {};
   ['attract', 'capture', 'review', 'video', 'frame', 'props', 'shots', 'overlay',
-   'filterRow', 'propRow', 'propCats', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn',
+   'filterRow', 'propRow', 'propCats', 'propHint', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn',
    'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
    'signModeBand', 'signModeFull', 'signHint', 'signScroll', 'signUp', 'signDown', 'signPos',
@@ -1383,6 +1389,20 @@
     });
 
     buildPalette(el.propCats, el.propRow, liveProps, buildControls);
+    applyTray();
+  }
+
+  /**
+   * The capture screen used to show the filters AND the props at once, which
+   * cost about 100px of a screen whose whole job is to show the guest their own
+   * face. They share one row now, chosen by the pills above it.
+   */
+  function applyTray() {
+    var filters = state.tray === 'filtros';
+    el.filterRow.classList.toggle('hidden', !filters);
+    el.propRow.classList.toggle('hidden', filters);
+    // The hint is about props, so it only earns its space on a prop tray.
+    el.propHint.classList.toggle('hidden', filters);
   }
 
   /**
@@ -1391,12 +1411,30 @@
    */
   function buildPalette(catsEl, rowEl, layer, rebuild) {
     catsEl.innerHTML = '';
+
+    // Only the capture screen shares its row with the filters; the decorator
+    // has no filters to show.
+    if (catsEl === el.propCats) {
+      var filterPill = document.createElement('button');
+      filterPill.className = 'pill' + (state.tray === 'filtros' ? ' on' : '');
+      setPillLabel(filterPill, '\ud83c\udfa8 Filtros', 'Looks');
+      filterPill.addEventListener('click', function () {
+        state.tray = 'filtros';
+        rebuild();
+        noteActivity();
+      });
+      catsEl.appendChild(filterPill);
+    }
+
     PROP_CATEGORIES.forEach(function (category) {
       var button = document.createElement('button');
-      button.className = 'pill' + (state.propCategory === category.id ? ' on' : '');
+      var live = catsEl === el.propCats;
+      var on = state.propCategory === category.id && (!live || state.tray === category.id);
+      button.className = 'pill' + (on ? ' on' : '');
       setPillLabel(button, category.title, category.sub);
       button.addEventListener('click', function () {
         state.propCategory = category.id;
+        if (live) state.tray = category.id;
         rebuild();
       });
       catsEl.appendChild(button);
@@ -2534,15 +2572,41 @@
 
   function bindAdmin() {
     var holdTimer;
-    el.hotcorner.addEventListener('pointerdown', function () {
+    /**
+     * Press and hold to reach the settings. Three things made this unreliable
+     * on a tablet:
+     *
+     *  - `pointerleave` cancelled it. A finger resting for three seconds rolls
+     *    and drifts, and leaving the box by a pixel killed the hold silently.
+     *    The pointer is captured instead, so the gesture belongs to this
+     *    element until it is released.
+     *  - There was no feedback at all. Three seconds of nothing is
+     *    indistinguishable from pressing the wrong place, so the only way to
+     *    learn it was not working was to give up.
+     *  - Touch scrolling could steal the gesture; `touch-action: none` in the
+     *    stylesheet stops that.
+     */
+    function endHold() {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      el.hotcorner.classList.remove('holding');
+    }
+
+    el.hotcorner.addEventListener('pointerdown', function (event) {
+      if (holdTimer) return;
+      try { el.hotcorner.setPointerCapture(event.pointerId); } catch (e) { /* mouse, or unsupported */ }
+      el.hotcorner.classList.add('holding');
       holdTimer = setTimeout(function () {
+        endHold();
         el.pinInput.value = '';
         el.pinError.style.display = 'none';
         el.pinModal.classList.remove('hidden');
-      }, 3000);
+        // The keyboard should be up: the operator is here to type a PIN.
+        setTimeout(function () { try { el.pinInput.focus(); } catch (e) {} }, 60);
+      }, HOLD_MS);
     });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (type) {
-      el.hotcorner.addEventListener(type, function () { clearTimeout(holdTimer); });
+    ['pointerup', 'pointercancel'].forEach(function (type) {
+      el.hotcorner.addEventListener(type, endHold);
     });
 
     el.pinCancel.addEventListener('click', function () { el.pinModal.classList.add('hidden'); });

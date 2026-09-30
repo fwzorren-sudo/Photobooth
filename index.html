@@ -311,6 +311,11 @@
   .btn:active { transform: scale(.96); }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--border-on-accent); }
   .btn.huge { font-size: clamp(24px, 4.4vh, 38px); padding: clamp(18px, 3vh, 28px) clamp(30px, 5vw, 56px); }
+  /* In portrait .controls stacks and this button stretches full width. Without
+     these the label stays at flex-start, jammed against the left edge, because
+     .btn is a flex container and the label is its only child. The action-pane
+     buttons deliberately do NOT centre, so this is scoped to .huge. */
+  .btn.huge { justify-content: center; text-align: center; }
   .btn .sub { display: block; font-size: .55em; opacity: .85; font-weight: 600; }
   .btn[disabled] { opacity: .35; pointer-events: none; }
 
@@ -449,7 +454,25 @@
   }
   #toast.show { opacity: 1; }
 
-  #hotcorner { position: absolute; left: 0; top: 0; width: 96px; height: 96px; }
+  /* The operator's way in: press and hold. It sits above the screens so it
+     works from any of them, but BELOW the topbar -- at 96px square it used to
+     cover the close button and swallow every tap meant for it. */
+  #hotcorner {
+    position: absolute; left: 0; top: 0; width: 112px; height: 112px;
+    z-index: 1; touch-action: none; -webkit-touch-callout: none;
+  }
+  /* Fills up while held, so the operator can see it registering instead of
+     guessing for three seconds. Invisible until the hold is clearly deliberate. */
+  #hotcorner::after {
+    content: ''; position: absolute; left: 10px; top: 10px; width: 26px; height: 26px;
+    border-radius: 50%; background: var(--accent); opacity: 0;
+    transform: scale(.3); pointer-events: none;
+  }
+  #hotcorner.holding::after {
+    opacity: .85; transform: scale(1);
+    transition: transform 2.6s linear, opacity .25s ease .4s;
+  }
+  .topbar { position: relative; z-index: 2; }
 
   .modal {
     position: absolute; inset: 0; background: color-mix(in srgb, var(--ink) 55%, transparent);
@@ -550,7 +573,7 @@
         <div class="row" id="filterRow"></div>
         <div class="tray-head" id="propCats"></div>
         <div class="row" id="propRow"></div>
-        <div class="hint">Arrastra para mover · pellizca para crecer · toca dos veces para quitar<br>Drag to move · pinch to resize · double-tap to remove</div>
+        <div class="hint" id="propHint">Arrastra para mover · pellizca para crecer · toca dos veces para quitar<br>Drag to move · pinch to resize · double-tap to remove</div>
       </div>
       <button class="btn primary huge" id="shootBtn" style="flex:0 0 auto">
         <span id="shootLabel">¡Foto!<span class="sub">Shoot</span></span>
