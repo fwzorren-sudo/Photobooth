@@ -134,8 +134,14 @@
   .guide-label {
     position: absolute; bottom: 5%; left: 50%; transform: translateX(-50%);
     background: rgba(0, 0, 0, .48); color: #fff;
-    padding: 8px 18px; border-radius: 999px; white-space: nowrap;
-    font-size: clamp(12px, 2vh, 18px); font-weight: 700;
+    padding: 8px 18px; border-radius: 999px;
+    /* It used to be white-space:nowrap sized off vh, so on a narrow preview it
+       ran 137px off both sides. Container queries would be the precise tool,
+       but container-type adds size containment and collapses this frame, which
+       is sized by aspect-ratio against its grid cell. So: cap the width, let
+       it wrap, and scale gently with the viewport. */
+    font-size: clamp(11px, 2.6vw, 18px); font-weight: 700;
+    max-width: 90%; text-align: center; line-height: 1.25;
   }
 
   /* Tonight's photos on the attract screen — the booth advertises itself. */
@@ -344,7 +350,15 @@
   /* flex-start keeps the close button pinned beside the first row of mode
      pills; centring it made the button float when the pills wrapped. */
   .topbar { display: flex; align-items: flex-start; gap: 14px; flex: 0 0 auto; min-height: 44px; }
-  .topbar .modes { display: flex; gap: 10px; margin: 0 auto; flex-wrap: wrap; justify-content: center; }
+  /* One row that scrolls when it has to, at every width. Wrapping cost 75px on
+     an iPad in portrait and 240px on a phone, all of it taken from the camera. */
+  .topbar .modes {
+    display: flex; gap: 10px; margin: 0 auto; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    justify-content: center; justify-content: safe center;
+  }
+  .topbar .modes::-webkit-scrollbar { display: none; }
+  .topbar .modes .pill { flex: 0 0 auto; }
   .topbar .spacer-right { width: 44px; flex: 0 0 auto; }
 
   .stage { flex: 1 1 auto; display: grid; place-items: center; min-height: 0; }
@@ -505,6 +519,41 @@
   }
 
   /* Portrait fallback: the booth is designed landscape, but never break. */
+  /* Phones. The booth is for an iPad, but this screen used to collapse
+     completely on anything narrow: the four mode pills wrapped to four rows
+     and ate 240px, leaving the camera preview 62x47 on an iPhone. The preview
+     is the entire point of this screen, so here it gets a floor and everything
+     else gets out of its way. */
+  @media (max-width: 620px) {
+    #capture { padding: 10px 12px; gap: 8px; }
+
+    /* One row that scrolls sideways, instead of four stacked rows. */
+    .topbar { gap: 8px; min-height: 0; }
+    .topbar .modes { margin: 0; }
+    .topbar .modes .pill { padding: 7px 13px; font-size: 15px; }
+    .topbar .spacer-right { display: none; }
+    .topbar .icon-btn { width: 38px; height: 38px; font-size: 18px; }
+
+    .stage { min-height: 40vh; }
+
+    .swatch { width: 82px; height: 68px; font-size: 13px; }
+    .swatch .emoji { font-size: 22px; }
+    .prop-btn { width: 58px; height: 58px; font-size: 32px; border-radius: 14px; }
+    .control-stack { gap: 6px; }
+    .pill { padding: 8px 14px; font-size: 15px; }
+    /* Five category pills wrapped to two rows here too. */
+    #propCats {
+      flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    #propCats::-webkit-scrollbar { display: none; }
+    #propCats .pill { flex: 0 0 auto; }
+    .btn.huge { font-size: clamp(19px, 3vh, 26px); padding: 12px 20px; }
+    /* Three lines of instructions is a third of a phone screen; the gestures
+       are discoverable by touching a prop. */
+    .hint { display: none; }
+  }
+
   @media (orientation: portrait) {
     #review { flex-direction: column; }
     .action-pane { flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; }
