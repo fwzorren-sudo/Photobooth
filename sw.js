@@ -1,6 +1,6 @@
 /* Cache-first service worker: once the booth has loaded, the venue Wi-Fi can
    die and the app keeps working. Bump CACHE when you change any asset. */
-var CACHE = 'quince-booth-v11';
+var CACHE = 'quince-booth-v12';
 var ASSETS = [
   './', './index.html', './booth.js', './share.js', './faces.js', './gif.js', './qrcode.js', './manifest.webmanifest',
   './icon-180.png', './icon-192.png', './icon-512.png', './icon-1024.png',
@@ -9,8 +9,11 @@ var ASSETS = [
   './props/manifest.json',
   './props/crown-gold-rose.webp', './props/crown-gold-fuchsia.webp',
   './props/tiara-silver-wide.webp', './props/tiara-silver-arch.webp',
-  './props/sash15.webp', './props/sceptre.webp', './props/num15.webp',
-  './props/mask.png', './props/mustache.png', './props/lips.png',
+  './props/sash-quince.webp', './props/sceptre.webp',
+  './props/fan.webp', './props/mask.png',
+  './props/mustache.png', './props/lips.png',
+  './props/xv.webp', './props/princesa.webp',
+  './props/finally15.webp', './props/num15.webp',
   './props/bubble.png'
 ];
 
