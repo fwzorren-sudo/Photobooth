@@ -1,6 +1,6 @@
 /* Cache-first service worker: once the booth has loaded, the venue Wi-Fi can
    die and the app keeps working. Bump CACHE when you change any asset. */
-var CACHE = 'quince-booth-v14';
+var CACHE = 'quince-booth-v15';
 var ASSETS = [
   './', './index.html', './booth.js', './share.js', './faces.js', './gif.js', './qrcode.js', './manifest.webmanifest',
   './icon-180.png', './icon-192.png', './icon-512.png', './icon-1024.png',
@@ -51,19 +51,56 @@ self.addEventListener('activate', function (event) {
   );
 });
 
+/* The code that makes up the booth is fetched from the network first, with the
+   cache as the fallback. It used to be cache-first like everything else, which
+   meant a changed booth took TWO reloads to appear: the first served the old
+   page from cache while the new worker installed behind it. That is a miserable
+   way to test on a device, and worse on the day if something needs a fix.
+
+   Everything else -- artwork, the face model, icons -- stays cache-first. Those
+   are large, they change rarely, and the hall's Wi-Fi is not to be relied on. */
+var SHELL = ['/', '/index.html', '/booth.js', '/share.js', '/faces.js',
+             '/gif.js', '/qrcode.js', '/facecheck.html', '/manifest.webmanifest'];
+
+function isShell(url) {
+  if (url.origin !== location.origin) return false;
+  var path = url.pathname.replace(/\/index\.html$/, '/');
+  return SHELL.some(function (name) {
+    return path === name || path.endsWith(name);
+  });
+}
+
+function cacheIfOk(request, response) {
+  if (response && response.ok && new URL(request.url).origin === location.origin) {
+    var copy = response.clone();
+    caches.open(CACHE).then(function (cache) { cache.put(request, copy); });
+  }
+  return response;
+}
+
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
+  var url = new URL(event.request.url);
+
+  if (event.request.mode === 'navigate' || isShell(url)) {
+    event.respondWith(
+      fetch(event.request)
+        .then(function (response) { return cacheIfOk(event.request, response); })
+        .catch(function () {
+          return caches.match(event.request).then(function (hit) {
+            return hit || caches.match('./index.html');
+          });
+        })
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then(function (hit) {
       if (hit) return hit;
-      return fetch(event.request).then(function (response) {
-        // Only cache same-origin successes; opaque responses would poison it.
-        if (response.ok && new URL(event.request.url).origin === location.origin) {
-          var copy = response.clone();
-          caches.open(CACHE).then(function (cache) { cache.put(event.request, copy); });
-        }
-        return response;
-      }).catch(function () { return caches.match('./index.html'); });
+      return fetch(event.request)
+        .then(function (response) { return cacheIfOk(event.request, response); })
+        .catch(function () { return caches.match('./index.html'); });
     })
   );
 });

@@ -132,7 +132,8 @@
     border-radius: 50% / 42%;
   }
   .guide-label {
-    position: absolute; bottom: 5%; left: 50%; transform: translateX(-50%);
+    /* Clear of the floating tray along the bottom. */
+    position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%);
     background: rgba(0, 0, 0, .48); color: #fff;
     padding: 8px 18px; border-radius: 999px;
     /* It used to be white-space:nowrap sized off vh, so on a narrow preview it
@@ -317,11 +318,17 @@
   .btn:active { transform: scale(.96); }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--border-on-accent); }
   .btn.huge { font-size: clamp(24px, 4.4vh, 38px); padding: clamp(18px, 3vh, 28px) clamp(30px, 5vw, 56px); }
-  /* In portrait .controls stacks and this button stretches full width. Without
-     these the label stays at flex-start, jammed against the left edge, because
-     .btn is a flex container and the label is its only child. The action-pane
-     buttons deliberately do NOT centre, so this is scoped to .huge. */
-  .btn.huge { justify-content: center; text-align: center; }
+  /* A single-child flex container needs telling, or the label sits at
+     flex-start. The action-pane buttons deliberately do NOT centre. */
+  .btn.huge, .btn.shoot { justify-content: center; text-align: center; }
+  /* The shutter. Big enough to hit without looking, small enough to leave the
+     camera the screen. */
+  .btn.shoot {
+    flex: 0 0 auto;
+    font-size: clamp(19px, 2.6vh, 28px);
+    padding: clamp(12px, 1.6vh, 18px) clamp(22px, 3.4vw, 40px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  }
   .btn .sub { display: block; font-size: .55em; opacity: .85; font-weight: 600; }
   .btn[disabled] { opacity: .35; pointer-events: none; }
 
@@ -345,38 +352,79 @@
 
   /* ---------- capture ---------- */
 
-  #capture { padding: 14px clamp(12px, 2.4vw, 28px); gap: 12px; }
+  /* The capture screen is the camera. Everything else floats over it. */
+  #capture { padding: 0; gap: 0; }
 
-  /* flex-start keeps the close button pinned beside the first row of mode
-     pills; centring it made the button float when the pills wrapped. */
-  .topbar { display: flex; align-items: flex-start; gap: 14px; flex: 0 0 auto; min-height: 44px; }
-  /* One row that scrolls when it has to, at every width. Wrapping cost 75px on
-     an iPad in portrait and 240px on a phone, all of it taken from the camera. */
-  .topbar .modes {
-    display: flex; gap: 10px; margin: 0 auto; flex-wrap: nowrap;
+  .frame {
+    position: absolute; inset: 0;
+    overflow: hidden; background: #000;
+    touch-action: none;
+  }
+  #videoBg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+    filter: blur(26px) brightness(.45) saturate(1.2);
+    /* The blur samples past the edges and would show them; scale it out. */
+    scale: 1.14;
+  }
+
+  /* Centred and sized by syncCropRegion(), which scales the video so the 4:3
+     region that becomes the photo is as large as the screen allows. Whatever
+     the sensor sees beyond that spills past the edges as context. */
+  #video {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%) scaleX(-1);
+    display: block; max-width: none;
+  }
+
+  /* The region that actually ends up in the photo. The huge spread shadow dims
+     everything outside it without covering it -- props inside stay draggable. */
+  #crop {
+    position: absolute; left: 0; top: 0;
+    outline: 2px solid rgba(255,255,255,.5);
+    border-radius: 4px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.42);
+  }
+
+  /* Floating controls. The bar itself ignores taps so the preview stays
+     draggable between the buttons; the buttons take them back. */
+  .hud { position: absolute; left: 0; right: 0; z-index: 3; display: flex; pointer-events: none; }
+  .hud > *, .hud button { pointer-events: auto; }
+  .hud-top {
+    top: 0; align-items: center; gap: 10px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 26px;
+    background: linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0));
+  }
+  .hud-bottom {
+    bottom: 0; flex-direction: column; gap: 8px;
+    padding: 30px 12px max(10px, env(safe-area-inset-bottom));
+    background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.66) 42%);
+  }
+  .hud-foot { display: flex; align-items: center; gap: 14px; justify-content: flex-end; }
+  .hud-foot .hint { flex: 1 1 auto; min-width: 0; color: rgba(255,255,255,.82); font-size: 12px; }
+
+  /* Chrome over video has to be light-on-dark, whatever the theme. */
+  .hud .pill, .hud .swatch, .hud .prop-btn, .hud .icon-btn {
+    background: rgba(255,255,255,.16); color: #fff;
+    border-color: rgba(255,255,255,.3);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+  .hud .pill.on, .hud .swatch.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .hud .prop-btn.art { background: rgba(255,255,255,.82); }
+  .hud .icon-btn { background: rgba(0,0,0,.45); }
+
+  .hud .modes {
+    display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap;
     overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
     justify-content: center; justify-content: safe center;
   }
-  .topbar .modes::-webkit-scrollbar { display: none; }
-  .topbar .modes .pill { flex: 0 0 auto; }
-  .topbar .spacer-right { width: 44px; flex: 0 0 auto; }
+  .hud .modes::-webkit-scrollbar { display: none; }
+  .hud .modes .pill { flex: 0 0 auto; }
 
-  .stage { flex: 1 1 auto; display: grid; place-items: center; min-height: 0; }
-
-  .frame {
-    position: relative;
-    aspect-ratio: 4 / 3;
-    max-height: 100%; max-width: 100%;
-    border-radius: var(--radius);
-    border: 5px solid var(--secondary);
-    overflow: hidden;
-    background: #000;
-    box-shadow: 0 18px 44px var(--shadow);
-    touch-action: none;
-  }
-  #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
-
+  /* Inside #crop: prop coordinates are normalised to the CAPTURED frame,
+     so they have to live in the region that gets captured. */
   #props { position: absolute; inset: 0; }
+  #crop .guide { position: absolute; inset: 0; }
   .prop {
     position: absolute; left: 0; top: 0;
     transform-origin: center center;
@@ -409,14 +457,12 @@
   .overlay-stack { display: grid; place-items: center; gap: 14px; text-align: center; }
   .overlay-stack .big { font-size: clamp(18px, 3.4vh, 32px); font-weight: 800; text-shadow: 0 3px 10px rgba(0,0,0,.65); }
 
-  .controls { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 20px; }
-  .control-stack { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 
   .row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .row::-webkit-scrollbar { display: none; }
 
   .swatch {
-    flex: 0 0 auto; width: 104px; height: 88px; border-radius: 18px;
+    flex: 0 0 auto; width: 76px; height: 62px; border-radius: 14px;
     background: var(--surface); border: 2px solid var(--border);
     color: var(--ink);
     display: grid; place-items: center; gap: 2px; font-size: 14px; font-weight: 700;
@@ -426,13 +472,13 @@
   .swatch.on { background: var(--accent); color: var(--accent-ink); border-color: var(--border-on-accent); }
 
   .prop-btn {
-    flex: 0 0 auto; width: 70px; height: 70px; border-radius: 18px;
+    flex: 0 0 auto; width: 56px; height: 56px; border-radius: 14px;
     background: var(--surface); border: 1.5px solid var(--border);
     font-size: 42px; display: grid; place-items: center;
   }
   /* Artwork tiles get a tinted ground: a silver tiara on white is invisible. */
   .prop-btn.art { background: linear-gradient(#eef2f8, #dae3ee); }
-  .prop-btn img { max-width: 90%; max-height: 90%; object-fit: contain;
+  .prop-btn img { max-width: 92%; max-height: 92%; object-fit: contain;
                   filter: drop-shadow(0 1px 2px rgba(0,0,0,.28)); }
   .tray-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .hint { font-size: 13px; color: var(--ink-soft); font-weight: 600; }
@@ -486,7 +532,6 @@
     opacity: .85; transform: scale(1);
     transition: transform 2.6s linear, opacity .25s ease .4s;
   }
-  .topbar { position: relative; z-index: 2; }
 
   .modal {
     position: absolute; inset: 0; background: color-mix(in srgb, var(--ink) 55%, transparent);
@@ -525,40 +570,31 @@
      is the entire point of this screen, so here it gets a floor and everything
      else gets out of its way. */
   @media (max-width: 620px) {
-    #capture { padding: 10px 12px; gap: 8px; }
-
-    /* One row that scrolls sideways, instead of four stacked rows. */
-    .topbar { gap: 8px; min-height: 0; }
-    .topbar .modes { margin: 0; }
-    .topbar .modes .pill { padding: 7px 13px; font-size: 15px; }
-    .topbar .spacer-right { display: none; }
-    .topbar .icon-btn { width: 38px; height: 38px; font-size: 18px; }
-
-    .stage { min-height: 40vh; }
-
-    .swatch { width: 82px; height: 68px; font-size: 13px; }
-    .swatch .emoji { font-size: 22px; }
-    .prop-btn { width: 58px; height: 58px; font-size: 32px; border-radius: 14px; }
-    .control-stack { gap: 6px; }
-    .pill { padding: 8px 14px; font-size: 15px; }
-    /* Five category pills wrapped to two rows here too. */
+    .hud-top { gap: 8px; padding-bottom: 20px; }
+    .hud-bottom { gap: 6px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+    .hud .icon-btn { width: 36px; height: 36px; font-size: 17px; }
+    .hud .modes .pill { padding: 6px 11px; font-size: 14px; }
+    .pill { padding: 7px 12px; font-size: 14px; }
+    .swatch { width: 66px; height: 54px; font-size: 12px; }
+    .swatch .emoji { font-size: 19px; }
+    .prop-btn { width: 50px; height: 50px; font-size: 28px; }
+    /* No room for instructions; the gestures are discoverable by touching a
+       prop. With the hint gone the shutter centres, as a camera's should. */
+    .hud-foot .hint { display: none; }
+    .hud-foot { justify-content: center; }
+    .btn.shoot { font-size: 18px; padding: 11px 22px; }
     #propCats {
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
     }
     #propCats::-webkit-scrollbar { display: none; }
     #propCats .pill { flex: 0 0 auto; }
-    .btn.huge { font-size: clamp(19px, 3vh, 26px); padding: 12px 20px; }
-    /* Three lines of instructions is a third of a phone screen; the gestures
-       are discoverable by touching a prop. */
-    .hint { display: none; }
   }
 
   @media (orientation: portrait) {
     #review { flex-direction: column; }
     .action-pane { flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; }
     .action-pane .btn { width: auto; flex: 1 1 42%; }
-    .controls { flex-direction: column; align-items: stretch; }
   }
 
   /* AirPrint / Cmd-P prints just the keepsake. */
@@ -598,35 +634,45 @@
   </section>
 
   <section id="capture" class="screen hidden">
-    <div class="topbar">
-      <button class="icon-btn" id="exitBtn" aria-label="Salir">✕</button>
-      <div class="modes" id="modeRow"></div>
-      <div class="spacer-right"></div>
-    </div>
+    <!-- The camera fills the screen and everything else floats over it. The
+         guest is here to look at themselves; the controls are secondary. -->
+    <div class="frame" id="frame">
+      <!-- The same stream, blurred, filling whatever the photo area does not.
+           A 4:3 photo on a tall screen otherwise leaves hard black bands. -->
+      <video id="videoBg" playsinline muted autoplay aria-hidden="true"></video>
+      <video id="video" playsinline muted autoplay></video>
 
-    <div class="stage">
-      <div class="frame" id="frame">
-        <video id="video" playsinline muted autoplay></video>
+      <!-- Exactly the region that ends up in the photo. The capture is a 4:3
+           centre crop of the camera, so on a screen of any other shape a
+           full-bleed preview would promise something it does not deliver.
+           Sized from the real video dimensions in syncCropRegion(). -->
+      <div id="crop">
         <div class="guide hidden" id="guide">
           <div class="guide-oval"></div>
           <div class="guide-label">Colócate aquí · Stand here</div>
         </div>
         <div id="props"></div>
-        <div id="shots"></div>
-        <div id="overlay"></div>
       </div>
-    </div>
 
-    <div class="controls">
-      <div class="control-stack">
-        <div class="row" id="filterRow"></div>
-        <div class="tray-head" id="propCats"></div>
-        <div class="row" id="propRow"></div>
-        <div class="hint" id="propHint">Arrastra para mover · pellizca para crecer · toca dos veces para quitar<br>Drag to move · pinch to resize · double-tap to remove</div>
+      <div id="shots"></div>
+      <div id="overlay"></div>
+
+      <div class="hud hud-top">
+        <button class="icon-btn" id="exitBtn" aria-label="Salir">✕</button>
+        <div class="modes" id="modeRow"></div>
       </div>
-      <button class="btn primary huge" id="shootBtn" style="flex:0 0 auto">
-        <span id="shootLabel">¡Foto!<span class="sub">Shoot</span></span>
-      </button>
+
+      <div class="hud hud-bottom">
+        <div class="tray-head" id="propCats"></div>
+        <div class="row" id="filterRow"></div>
+        <div class="row" id="propRow"></div>
+        <div class="hud-foot">
+          <div class="hint" id="propHint">Arrastra · pellizca · toca dos veces para quitar<br>Drag · pinch · double-tap to remove</div>
+          <button class="btn primary shoot" id="shootBtn">
+            <span id="shootLabel">¡Foto!<span class="sub">Shoot</span></span>
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 

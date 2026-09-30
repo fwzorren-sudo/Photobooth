@@ -213,7 +213,7 @@
   };
 
   var el = {};
-  ['attract', 'capture', 'review', 'video', 'frame', 'props', 'shots', 'overlay',
+  ['attract', 'capture', 'review', 'video', 'videoBg', 'frame', 'crop', 'props', 'shots', 'overlay',
    'filterRow', 'propRow', 'propCats', 'propHint', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn',
    'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
@@ -608,6 +608,8 @@
 
       videoModeAvailable = stream.getAudioTracks().length > 0;
       el.video.srcObject = stream;
+      // Same stream, blurred, behind: it fills whatever the photo area cannot.
+      if (el.videoBg) el.videoBg.srcObject = stream;
       await el.video.play();
       cameraReady = true;
       hideCameraNotice();
@@ -674,6 +676,38 @@
       return ctx.filter === 'blur(1px)';
     } catch (e) { return false; }
   })();
+
+  /**
+   * Size the preview so the region that actually reaches the photo is as large
+   * as the screen allows, and mark it.
+   *
+   * The subtlety: a photo is a 4:3 centre crop of the camera, so the video and
+   * the photo are different shapes. Scaling the video to fit the screen is the
+   * wrong move -- it scales by the whole sensor, and on a portrait screen with
+   * a landscape camera that left the actual photo area at 24% of the display.
+   * Scaling by the CROP instead makes the photo area as big as it can be and
+   * lets the rest of the sensor spill past the edges as context.
+   */
+  function syncCropRegion() {
+    if (!el.crop || !el.frame) return;
+    var rect = el.frame.getBoundingClientRect();
+    var vw = el.video.videoWidth, vh = el.video.videoHeight;
+    if (!rect.width || !rect.height || !vw || !vh) return;
+
+    var crop = cropRect();
+    var scale = Math.min(rect.width / crop.sw, rect.height / crop.sh);
+
+    // The video is positioned by hand, so object-fit has nothing to do.
+    el.video.style.width = Math.round(vw * scale) + 'px';
+    el.video.style.height = Math.round(vh * scale) + 'px';
+
+    var w = Math.round(crop.sw * scale), h = Math.round(crop.sh * scale);
+    el.crop.style.width = w + 'px';
+    el.crop.style.height = h + 'px';
+    el.crop.style.left = Math.round((rect.width - w) / 2) + 'px';
+    el.crop.style.top = Math.round((rect.height - h) / 2) + 'px';
+    renderPropElements();
+  }
 
   function cropRect() {
     var vw = el.video.videoWidth || 1280;
@@ -1321,7 +1355,9 @@
 
   /** The live layer over the camera preview. */
   var liveProps = propLayer({
-    host: function () { return el.frame; },
+    // #crop, not #frame: prop coordinates are fractions of the CAPTURED photo,
+    // and the preview is now full-bleed, so the frame is bigger than the photo.
+    host: function () { return el.crop; },
     layer: function () { return el.props; },
     props: function () { return state.props; },
     enabled: function () { return state.phase === 'ready'; },
@@ -1522,6 +1558,8 @@
     renderPropElements();
     buildControls();
     setPhase('ready');
+    // The screen only has a size once it is visible.
+    requestAnimationFrame(syncCropRegion);
   }
 
   async function runCountdown(seconds) {
@@ -2651,11 +2689,11 @@
     el.exitBtn.addEventListener('click', goAttract);
 
     document.addEventListener('pointerdown', noteActivity, true);
-    window.addEventListener('resize', function () {
-      if (state.props.length) renderPropElements();
-    });
+    el.video.addEventListener('loadedmetadata', syncCropRegion);
+    el.video.addEventListener('resize', syncCropRegion);
+    window.addEventListener('resize', syncCropRegion);
     window.addEventListener('orientationchange', function () {
-      setTimeout(renderPropElements, 320);
+      setTimeout(syncCropRegion, 320);
     });
 
     // A booth screen should never show a context menu or a text cursor.
