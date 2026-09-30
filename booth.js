@@ -155,12 +155,23 @@
     { id: 'frio', title: 'Frío', sub: 'Cool', emoji: '❄️', css: 'hue-rotate(18deg) saturate(1.2) brightness(1.04)' }
   ];
 
+  /**
+   * Prop palette. Each category holds items that are either an emoji glyph or a
+   * piece of artwork (a PNG with an alpha channel, served from the booth).
+   * Artwork listed in props/manifest.json is merged in at boot, so adding a new
+   * prop is a file plus a line of JSON - no code change.
+   */
   var PROP_CATEGORIES = [
-    { id: 'corona', title: 'Corona', sub: 'Crowns', glyphs: ['👑', '👸', '💎', '🎀', '🌹', '🪮'] },
-    { id: 'cara', title: 'Cara', sub: 'Faces', glyphs: ['🕶️', '🤓', '🥸', '💋', '😎', '🤠', '🎭', '🦄'] },
-    { id: 'fiesta', title: 'Fiesta', sub: 'Party', glyphs: ['🎉', '🎊', '🪅', '🎈', '🥳', '💃', '🕺', '🎸'] },
-    { id: 'amor', title: 'Amor', sub: 'Love', glyphs: ['💖', '✨', '⭐️', '💫', '🌟', '🦋', '🌸', '🍰'] }
+    { id: 'corona', title: 'Corona', sub: 'Crowns',
+      items: ['👑', '👸', '💎', '🎀', '🌹'] },
+    { id: 'cara', title: 'Cara', sub: 'Faces',
+      items: ['🕶️', '🤓', '🥸', '💋', '😎', '🤠', '🎭', '🦄'] },
+    { id: 'fiesta', title: 'Fiesta', sub: 'Party',
+      items: ['🎉', '🎊', '🪅', '🎈', '🥳', '💃', '🕺', '🎸'] },
+    { id: 'amor', title: 'Amor', sub: 'Love',
+      items: ['💖', '✨', '⭐️', '💫', '🌟', '🦋', '🌸', '🍰'] }
   ];
+
 
   var MODES = {
     strip: { title: 'Tira de Fotos', sub: 'Photo strip', emoji: '🎞️', shoot: '¡Foto!', shootSub: 'Shoot' },
@@ -200,12 +211,15 @@
    'filterRow', 'propRow', 'propCats', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn',
    'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
+   'signModeBand', 'signModeFull', 'signHint', 'signScroll', 'signUp', 'signDown', 'signPos',
    'pinCancel', 'pinOk', 'adminModal', 'adminBody', 'adminDone', 'adminReset',
    'printArea', 'printImg', 'cameraNotice', 'cameraNoticeTitle', 'cameraNoticeDetail',
    'guide', 'gallery', 'galleryRow', 'warnings', 'redoRow', 'redoThumbs',
    'resultVideo', 'signModal', 'signStage', 'signImg', 'signCanvas', 'signColors',
-   'signUndo', 'signClear', 'signCancel',
-   'signDone'].forEach(function (id) { el[id] = document.getElementById(id); });
+   'signUndo', 'signClear', 'signCancel', 'signDone',
+   'decorModal', 'decorFrames', 'decorStage', 'decorImg', 'decorProps',
+   'decorCats', 'decorRow', 'decorCancel', 'decorFit',
+   'decorDone'].forEach(function (id) { el[id] = document.getElementById(id); });
 
   // ---------------------------------------------------------------- helpers
 
@@ -664,7 +678,11 @@
     return { sx: (vw - sw) / 2, sy: (vh - sh) / 2, sw: sw, sh: sh };
   }
 
-  /** One finished frame: mirrored, filtered, props burned in. */
+  /**
+   * One finished frame: mirrored and filtered, but *without* props. Props stay
+   * data on the shot so each frame of a strip can carry its own, and so a guest
+   * can still move them after the shutter has fired.
+   */
   function renderFrame(width) {
     var w = Math.round(width);
     var h = Math.round(w * 3 / 4);
@@ -682,22 +700,71 @@
     ctx.restore();
 
     if (!supportsCanvasFilter) applyFilterFallback(ctx, w, h, state.filter.css);
-    drawProps(ctx, w, h);
     return canvas;
   }
 
-  function propFontSize(prop, frameHeight) { return Math.max(prop.h * frameHeight * 0.85, 8); }
+  /**
+   * A captured frame: the bare photo plus its own props. The props the guest
+   * had on screen when the shutter fired are copied in, so the shot looks like
+   * the preview, but from here on each frame owns them.
+   */
+  function newShot(width) {
+    return { canvas: renderFrame(width), props: cloneProps(state.props), baked: null };
+  }
 
-  function drawProps(ctx, w, h) {
-    state.props.forEach(function (prop) {
-      var size = propFontSize(prop, h);
+  function cloneProps(props) {
+    return props.map(function (prop) {
+      return { id: nextPropId(), glyph: prop.glyph, src: prop.src, aspect: prop.aspect,
+               anchor: prop.anchor, x: prop.x, y: prop.y, h: prop.h, r: prop.r };
+    });
+  }
+
+  /** The shot with its props drawn in, ready to compose or thumbnail. */
+  function frameImage(shot) {
+    if (shot.baked) return shot.baked;
+    if (!shot.props.length) { shot.baked = shot.canvas; return shot.baked; }
+
+    var w = shot.canvas.width, h = shot.canvas.height;
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d', { alpha: false });
+    ctx.drawImage(shot.canvas, 0, 0);
+    drawProps(ctx, w, h, shot.props);
+    shot.baked = canvas;
+    return canvas;
+  }
+
+  /** Call after editing a shot's props so the next compose redraws it. */
+  function invalidateShot(shot) { if (shot) shot.baked = null; }
+
+  /**
+   * How large a prop renders. `h` is the prop's height as a fraction of the
+   * frame; artwork keeps its own aspect ratio, emoji are square.
+   */
+  function propSize(prop, frameHeight) {
+    var h = Math.max(prop.h * frameHeight * 0.85, 8);
+    return { w: h * (prop.aspect || 1), h: h };
+  }
+
+  function propFontSize(prop, frameHeight) { return propSize(prop, frameHeight).h; }
+
+  function drawProps(ctx, w, h, props) {
+    (props || []).forEach(function (prop) {
+      var size = propSize(prop, h);
       ctx.save();
       ctx.translate(prop.x * w, prop.y * h);
       ctx.rotate(prop.r * Math.PI / 180);
-      ctx.font = size + 'px "Apple Color Emoji", "Segoe UI Emoji", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(prop.glyph, 0, 0);
+      if (prop.src) {
+        var art = propArt(prop.src);
+        // Artwork that has not finished loading is skipped rather than drawn
+        // as a broken box; the guest can only place one once it has loaded.
+        if (art) ctx.drawImage(art, -size.w / 2, -size.h / 2, size.w, size.h);
+      } else {
+        ctx.font = size.h + 'px "Apple Color Emoji", "Segoe UI Emoji", system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(prop.glyph, 0, 0);
+      }
       ctx.restore();
     });
   }
@@ -922,11 +989,12 @@
                width, footerHeight * 0.6, ROUND_FAMILY, '800', bronze, halo);
   }
 
-  function composeStrip(frames) {
+  function composeStrip(frames, signBand) {
     var W = 1200, pad = 60, gap = 26, header = 240, footer = 150;
+    var band = signBand || 0;
     var cellW = W - pad * 2;
     var cellH = Math.round(cellW * 3 / 4);
-    var H = header + frames.length * cellH + (frames.length - 1) * gap + footer;
+    var H = header + frames.length * cellH + (frames.length - 1) * gap + footer + band;
 
     var canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
@@ -934,28 +1002,48 @@
 
     drawBackground(ctx, W, H);
     var y = header;
-    frames.forEach(function (frame) {
-      drawPhotoCell(ctx, frame, pad, y, cellW, cellH);
+    frames.forEach(function (shot) {
+      drawPhotoCell(ctx, frameImage(shot), pad, y, cellW, cellH);
       y += cellH + gap;
     });
-    drawHeaderFooter(ctx, pad, cellW, 26, header - 44, H - footer + 14, footer - 34);
+    drawHeaderFooter(ctx, pad, cellW, 26, header - 44, H - band - footer + 14, footer - 34);
+    if (band) drawSignatureBand(ctx, pad, H - band, cellW, band);
     return canvas;
   }
 
-  function composeSingle(frame) {
+  function composeSingle(frame, signBand) {
     var W = 1800, pad = 70, header = 190, footer = 150;
+    var band = signBand || 0;
     var photoW = W - pad * 2;
     var photoH = Math.round(photoW * 3 / 4);
-    var H = header + photoH + footer;
+    var H = header + photoH + footer + band;
 
     var canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     var ctx = canvas.getContext('2d', { alpha: false });
 
     drawBackground(ctx, W, H);
-    drawPhotoCell(ctx, frame, pad, header, photoW, photoH);
-    drawHeaderFooter(ctx, pad, photoW, 24, header - 44, H - footer + 14, footer - 34);
+    drawPhotoCell(ctx, frameImage(frame), pad, header, photoW, photoH);
+    drawHeaderFooter(ctx, pad, photoW, 24, header - 44, H - band - footer + 14, footer - 34);
+    if (band) drawSignatureBand(ctx, pad, H - band, photoW, band);
     return canvas;
+  }
+
+  /**
+   * The guest's handwriting, inside the keepsake's own border rather than
+   * bolted underneath it. Strokes are normalised to the band they were
+   * written in, so a message spanning an iPad lands here at the same
+   * proportions instead of being crushed into the keepsake's narrow column.
+   */
+  function drawSignatureBand(ctx, x, y, w, h) {
+    var inset = Math.round(h * 0.1);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h - inset);
+    ctx.clip();
+    ctx.translate(x, y);
+    drawStrokes(ctx, state.signature.strokes, w, h - inset);
+    ctx.restore();
   }
 
   /** A slim themed band so a boomerang still says whose party it was. */
@@ -976,143 +1064,268 @@
 
   // ---------------------------------------------------------------- props UI
 
-  function renderPropElements() {
-    el.props.innerHTML = '';
-    var rect = el.frame.getBoundingClientRect();
-    state.props.forEach(function (prop) {
-      var size = propFontSize(prop, rect.height);
-      var node = document.createElement('div');
-      node.className = 'prop';
-      node.textContent = prop.glyph;
-      node.style.width = size + 'px';
-      node.style.height = size + 'px';
-      node.style.fontSize = size + 'px';
-      node.style.display = 'grid';
-      node.style.placeItems = 'center';
-      node.style.transform = 'translate(' + (prop.x * rect.width - size / 2) + 'px,' +
-        (prop.y * rect.height - size / 2) + 'px) rotate(' + prop.r + 'deg)';
-      attachPropGestures(node, prop);
-      el.props.appendChild(node);
-    });
+  var propImages = {};
+  var propArtLoaded = false;
+
+  function propArt(src) {
+    var img = propImages[src];
+    return img && img.complete && img.naturalWidth ? img : null;
   }
 
-  /** Drag with one finger, pinch/twist with two, double-tap to remove. */
-  function attachPropGestures(node, prop) {
-    var pointers = new Map();
-    var start = null;
+  /**
+   * Artwork props are PNGs (or any image the browser decodes) listed in
+   * props/manifest.json:
+   *
+   *   [{ "src": "crown-gold.png", "label": "Corona", "sub": "Crown",
+   *      "category": "corona" }]
+   *
+   * They must be served from the booth itself. A cross-origin image taints the
+   * canvas, and `toBlob` then refuses to hand back the keepsake - the guest
+   * would lose the photo, not just the prop. Anything that fails to load is
+   * dropped from the palette rather than offered as a broken tile.
+   */
+  async function loadPropArt() {
+    if (propArtLoaded) return;
+    propArtLoaded = true;
+    var manifest;
+    try {
+      var response = await fetch('props/manifest.json', { cache: 'no-cache' });
+      if (!response.ok) return;
+      manifest = await response.json();
+    } catch (err) { return; }
+    if (!Array.isArray(manifest)) return;
 
-    function frameRect() { return el.frame.getBoundingClientRect(); }
-
-    node.addEventListener('pointerdown', function (event) {
-      if (state.phase !== 'ready') return;
-      event.preventDefault();
-      event.stopPropagation();
-      node.setPointerCapture(event.pointerId);
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      noteActivity();
-
-      if (pointers.size === 1) {
-        // The tap timestamp lives on the prop, not in this closure: the
-        // element is rebuilt whenever the prop list re-renders, which would
-        // otherwise reset the double-tap window on every single tap.
-        var now = Date.now();
-        if (now - (prop.lastTap || 0) < DOUBLE_TAP_MS) {
-          prop.lastTap = 0;
-          removeProp(prop.id);
-          return;
-        }
-        prop.lastTap = now;
-      }
-      start = snapshot();
-    });
-
-    node.addEventListener('pointermove', function (event) {
-      if (!pointers.has(event.pointerId) || !start) return;
-      event.preventDefault();
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      apply();
-    });
-
-    ['pointerup', 'pointercancel'].forEach(function (type) {
-      node.addEventListener(type, function (event) {
-        if (!pointers.has(event.pointerId)) return;
-        pointers.delete(event.pointerId);
-        start = pointers.size ? snapshot() : null;
-        // No re-render here: `apply()` already wrote the new transform, and
-        // rebuilding would throw away the element mid-gesture.
+    var loaded = await Promise.all(manifest.map(function (entry) {
+      if (!entry || typeof entry.src !== 'string') return null;
+      var src = 'props/' + entry.src.replace(/^\/+/, '');
+      return new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () {
+          propImages[src] = img;
+          resolve({ src: src, aspect: img.naturalWidth / img.naturalHeight,
+                    label: entry.label || '', sub: entry.sub || '',
+                    anchor: entry.anchor || null,
+                    category: entry.category || 'corona' });
+        };
+        img.onerror = function () { resolve(null); };
+        img.src = src;
       });
+    }));
+
+    var art = {};
+    loaded.forEach(function (item) {
+      if (!item) return;
+      (art[item.category] = art[item.category] || []).push(item);
     });
+    Object.keys(art).forEach(function (id) {
+      var category = PROP_CATEGORIES.filter(function (c) { return c.id === id; })[0];
+      if (!category) {
+        category = { id: id, title: art[id][0].label || id, sub: art[id][0].sub || '', items: [] };
+        PROP_CATEGORIES.push(category);
+      }
+      // Artwork leads the row, in manifest order: it is what we would rather
+      // the guest reached for.
+      category.items = art[id].concat(category.items);
+    });
+    buildControls();
+  }
 
-    function snapshot() {
-      var list = Array.from(pointers.values());
-      return {
-        prop: { x: prop.x, y: prop.y, h: prop.h, r: prop.r },
-        centre: centreOf(list),
-        spread: spreadOf(list),
-        angle: angleOf(list),
-        count: list.length
-      };
+  var propSerial = 0;
+  function nextPropId() { return 'p' + (++propSerial) + '-' + Date.now().toString(36); }
+
+  /**
+   * A layer of draggable props over some rectangle. The camera preview and the
+   * post-capture decorator both use one; they differ only in the element they
+   * sit over, the prop list they edit, and when editing is allowed.
+   *
+   *   host()    the element whose box the normalised coordinates map onto
+   *   layer()   the absolutely-positioned container the nodes go in
+   *   props()   the array being edited
+   *   enabled() whether gestures are live right now
+   *   onChange() called after a prop is added, removed or moved
+   */
+  function propLayer(opts) {
+    function rect() { return opts.host().getBoundingClientRect(); }
+
+    function place(node, prop, box) {
+      node.style.width = box.w + 'px';
+      node.style.height = box.h + 'px';
+      node.style.fontSize = box.h + 'px';
+      node.style.transform = 'translate(' + (prop.x * box.rw - box.w / 2) + 'px,' +
+        (prop.y * box.rh - box.h / 2) + 'px) rotate(' + prop.r + 'deg)';
     }
 
-    function centreOf(list) {
-      var sx = 0, sy = 0;
-      list.forEach(function (p) { sx += p.x; sy += p.y; });
-      return { x: sx / list.length, y: sy / list.length };
-    }
-    function spreadOf(list) {
-      if (list.length < 2) return 0;
-      return Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
-    }
-    function angleOf(list) {
-      if (list.length < 2) return 0;
-      return Math.atan2(list[1].y - list[0].y, list[1].x - list[0].x) * 180 / Math.PI;
+    function boxFor(prop, r) {
+      var size = propSize(prop, r.height);
+      return { w: size.w, h: size.h, rw: r.width, rh: r.height };
     }
 
-    function apply() {
-      var list = Array.from(pointers.values());
-      if (!list.length) return;
-      var rect = frameRect();
-      var centre = centreOf(list);
+    function render() {
+      var container = opts.layer();
+      container.innerHTML = '';
+      var r = rect();
+      opts.props().forEach(function (prop) {
+        var node = document.createElement('div');
+        node.className = 'prop';
+        if (prop.src) {
+          var img = document.createElement('img');
+          img.src = prop.src;
+          img.alt = '';
+          img.draggable = false;
+          node.appendChild(img);
+        } else {
+          node.textContent = prop.glyph;
+          node.style.display = 'grid';
+          node.style.placeItems = 'center';
+        }
+        place(node, prop, boxFor(prop, r));
+        attach(node, prop);
+        container.appendChild(node);
+      });
+    }
 
-      prop.x = clamp(start.prop.x + (centre.x - start.centre.x) / rect.width, -0.05, 1.05);
-      prop.y = clamp(start.prop.y + (centre.y - start.centre.y) / rect.height, -0.05, 1.05);
+    /** Drag with one finger, pinch/twist with two, double-tap to remove. */
+    function attach(node, prop) {
+      var pointers = new Map();
+      var start = null;
 
-      if (list.length >= 2 && start.count >= 2 && start.spread > 0) {
-        prop.h = clamp(start.prop.h * (spreadOf(list) / start.spread), 0.08, 0.8);
-        prop.r = start.prop.r + (angleOf(list) - start.angle);
+      node.addEventListener('pointerdown', function (event) {
+        if (!opts.enabled()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        node.setPointerCapture(event.pointerId);
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        noteActivity();
+
+        if (pointers.size === 1) {
+          // The tap timestamp lives on the prop, not in this closure: the
+          // element is rebuilt whenever the prop list re-renders, which would
+          // otherwise reset the double-tap window on every single tap.
+          var now = Date.now();
+          if (now - (prop.lastTap || 0) < DOUBLE_TAP_MS) {
+            prop.lastTap = 0;
+            remove(prop.id);
+            return;
+          }
+          prop.lastTap = now;
+        }
+        start = snapshot();
+      });
+
+      node.addEventListener('pointermove', function (event) {
+        if (!pointers.has(event.pointerId) || !start) return;
+        event.preventDefault();
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        apply();
+      });
+
+      ['pointerup', 'pointercancel'].forEach(function (type) {
+        node.addEventListener(type, function (event) {
+          if (!pointers.has(event.pointerId)) return;
+          pointers.delete(event.pointerId);
+          start = pointers.size ? snapshot() : null;
+          // No re-render here: `apply()` already wrote the new transform, and
+          // rebuilding would throw away the element mid-gesture.
+          if (!pointers.size) changed();
+        });
+      });
+
+      function snapshot() {
+        var list = Array.from(pointers.values());
+        return {
+          prop: { x: prop.x, y: prop.y, h: prop.h, r: prop.r },
+          centre: centreOf(list),
+          spread: spreadOf(list),
+          angle: angleOf(list),
+          count: list.length
+        };
       }
 
-      var size = propFontSize(prop, rect.height);
-      node.style.width = size + 'px';
-      node.style.height = size + 'px';
-      node.style.fontSize = size + 'px';
-      node.style.transform = 'translate(' + (prop.x * rect.width - size / 2) + 'px,' +
-        (prop.y * rect.height - size / 2) + 'px) rotate(' + prop.r + 'deg)';
+      function centreOf(list) {
+        var sx = 0, sy = 0;
+        list.forEach(function (p) { sx += p.x; sy += p.y; });
+        return { x: sx / list.length, y: sy / list.length };
+      }
+      function spreadOf(list) {
+        if (list.length < 2) return 0;
+        return Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
+      }
+      function angleOf(list) {
+        if (list.length < 2) return 0;
+        return Math.atan2(list[1].y - list[0].y, list[1].x - list[0].x) * 180 / Math.PI;
+      }
+
+      function apply() {
+        var list = Array.from(pointers.values());
+        if (!list.length) return;
+        var r = rect();
+        var centre = centreOf(list);
+
+        prop.x = clamp(start.prop.x + (centre.x - start.centre.x) / r.width, -0.05, 1.05);
+        prop.y = clamp(start.prop.y + (centre.y - start.centre.y) / r.height, -0.05, 1.05);
+
+        if (list.length >= 2 && start.count >= 2 && start.spread > 0) {
+          prop.h = clamp(start.prop.h * (spreadOf(list) / start.spread), 0.08, 0.8);
+          prop.r = start.prop.r + (angleOf(list) - start.angle);
+        }
+
+        place(node, prop, boxFor(prop, r));
+      }
     }
+
+    function changed() { if (opts.onChange) opts.onChange(); noteActivity(); }
+
+    function add(item) {
+      var props = opts.props();
+      if (props.length >= 8) { toast('¡Ya hay muchos! · That’s plenty of props'); return; }
+      var offset = (props.length % 4) * 0.07;
+      var prop = { id: nextPropId(), x: 0.4 + offset, y: 0.36 + offset * 0.4, h: 0.26, r: 0 };
+      if (typeof item === 'string') prop.glyph = item;
+      else { prop.src = item.src; prop.aspect = item.aspect || 1; prop.anchor = item.anchor || null; }
+      // Anchored artwork lands on a face when the layer knows about one.
+      if (opts.fit) opts.fit(prop);
+      props.push(prop);
+      render();
+      changed();
+    }
+
+    function remove(id) {
+      var props = opts.props();
+      // Edit the array in place: the decorator hands us a shot's own prop list
+      // and reassigning would only rebind our local copy.
+      var keep = props.filter(function (p) { return p.id !== id; });
+      props.length = 0;
+      keep.forEach(function (p) { props.push(p); });
+      render();
+      changed();
+    }
+
+    function clear() {
+      var props = opts.props();
+      props.length = 0;
+      render();
+      changed();
+    }
+
+    return {
+      render: render, add: add, remove: remove, clear: clear,
+      count: function () { return opts.props().length; }
+    };
   }
 
-  function addProp(glyph) {
-    if (state.props.length >= 8) { toast('¡Ya hay muchos! · That’s plenty of props'); return; }
-    var offset = (state.props.length % 4) * 0.07;
-    state.props.push({
-      id: 'p' + Date.now() + Math.random().toString(16).slice(2),
-      glyph: glyph, x: 0.4 + offset, y: 0.36 + offset * 0.4, h: 0.26, r: 0
-    });
-    renderPropElements();
-    noteActivity();
-  }
+  /** The live layer over the camera preview. */
+  var liveProps = propLayer({
+    host: function () { return el.frame; },
+    layer: function () { return el.props; },
+    props: function () { return state.props; },
+    enabled: function () { return state.phase === 'ready'; },
+    // So "Quitar todo" appears as soon as there is something to clear.
+    onChange: function () { buildControls(); }
+  });
 
-  function removeProp(id) {
-    state.props = state.props.filter(function (p) { return p.id !== id; });
-    renderPropElements();
-    noteActivity();
-  }
-
-  function clearProps() {
-    state.props = [];
-    renderPropElements();
-    noteActivity();
-  }
+  function renderPropElements() { liveProps.render(); }
+  function addProp(item) { liveProps.add(item); }
+  function clearProps() { liveProps.clear(); }
 
   // ---------------------------------------------------------------- UI build
 
@@ -1169,34 +1382,52 @@
       el.filterRow.appendChild(button);
     });
 
-    el.propCats.innerHTML = '';
+    buildPalette(el.propCats, el.propRow, liveProps, buildControls);
+  }
+
+  /**
+   * The category pills and the prop tray. Shared by the camera screen and the
+   * post-capture decorator so both always offer the same props.
+   */
+  function buildPalette(catsEl, rowEl, layer, rebuild) {
+    catsEl.innerHTML = '';
     PROP_CATEGORIES.forEach(function (category) {
       var button = document.createElement('button');
       button.className = 'pill' + (state.propCategory === category.id ? ' on' : '');
       setPillLabel(button, category.title, category.sub);
       button.addEventListener('click', function () {
         state.propCategory = category.id;
-        buildControls();
+        rebuild();
       });
-      el.propCats.appendChild(button);
+      catsEl.appendChild(button);
     });
-    if (state.props.length) {
-      var clearButton = document.createElement('button');
-      clearButton.className = 'pill';
-      setPillLabel(clearButton, 'Quitar todo', 'Clear all');
-      clearButton.addEventListener('click', clearProps);
-      el.propCats.appendChild(clearButton);
-    }
 
-    el.propRow.innerHTML = '';
+    rowEl.innerHTML = '';
     var active = PROP_CATEGORIES.filter(function (c) { return c.id === state.propCategory; })[0] || PROP_CATEGORIES[0];
-    active.glyphs.forEach(function (glyph) {
+    active.items.forEach(function (item) {
       var button = document.createElement('button');
-      button.className = 'prop-btn';
-      button.textContent = glyph;
-      button.addEventListener('click', function () { addProp(glyph); });
-      el.propRow.appendChild(button);
+      button.className = 'prop-btn' + (typeof item === 'string' ? '' : ' art');
+      if (typeof item === 'string') {
+        button.textContent = item;
+        button.setAttribute('aria-label', 'Prop');
+      } else {
+        var img = document.createElement('img');
+        img.src = item.src;
+        img.alt = item.label || '';
+        img.draggable = false;
+        button.appendChild(img);
+        button.setAttribute('aria-label', item.label || 'Prop');
+      }
+      button.addEventListener('click', function () { layer.add(item); });
+      rowEl.appendChild(button);
     });
+
+    var clearButton = document.createElement('button');
+    clearButton.className = 'pill';
+    clearButton.style.visibility = layer.count() ? 'visible' : 'hidden';
+    setPillLabel(clearButton, 'Quitar todo', 'Clear all');
+    clearButton.addEventListener('click', function () { layer.clear(); rebuild(); });
+    catsEl.appendChild(clearButton);
   }
 
   function setPhase(phase) {
@@ -1232,9 +1463,9 @@
   function updateShotStrip() {
     el.shots.innerHTML = '';
     if (state.mode !== 'strip') return;
-    state.shots.forEach(function (canvas) {
+    state.shots.forEach(function (shot) {
       var img = document.createElement('img');
-      img.src = canvas.toDataURL('image/jpeg', 0.6);
+      img.src = frameImage(shot).toDataURL('image/jpeg', 0.6);
       el.shots.appendChild(img);
     });
   }
@@ -1297,7 +1528,7 @@
 
           showOverlay('', 'flash');
           shutter();
-          state.shots.push(renderFrame(1440));
+          state.shots.push(newShot(1440));
           await sleep(250);
           if (state.cancelled) return abortCapture();
           updateShotStrip();
@@ -1321,13 +1552,20 @@
                 '<div class="hint" style="opacity:.85">Building your keepsake</div></div>', 'dim');
   }
 
-  async function composeStills() {
+  /**
+   * Build the keepsake from the shots and publish it.
+   *
+   * `keep` is set when the frames themselves did not change shape - decorating
+   * an already-published keepsake - so any signature stays and the guest link
+   * keeps its code. A fresh capture or a redone frame starts clean.
+   */
+  async function composeStills(keep) {
     processingOverlay();
     await sleep(30); // let the overlay paint before the main thread blocks
+    if (!keep) state.signature = { mode: 'band', strokes: [] };
     var canvas = state.mode === 'strip' ? composeStrip(state.shots) : composeSingle(state.shots[0]);
     state.composed = canvas;
-    state.strokes = [];
-    await publishCanvas(canvas);
+    await publishCanvas(canvas, keep ? (state.result && state.result.code) : undefined);
   }
 
   async function recordBoomerang() {
@@ -1349,6 +1587,9 @@
 
       var frame = renderFrame(width);
       var ctx = frame.getContext('2d');
+      // A boomerang is a single moving take, so there is nothing to decorate
+      // afterwards: whatever props are on screen burn in as they are.
+      drawProps(ctx, width, height, state.props);
       decorateBoomerangFrame(ctx, width, height);
       captured.push(ctx.getImageData(0, 0, width, height));
       await sleep(BOOMERANG.interval);
@@ -1364,20 +1605,27 @@
     }), BOOMERANG.delay);
 
     state.composed = null;
-    state.strokes = [];
+    state.signature = { mode: 'band', strokes: [] };
     finishWith(new Blob([bytes], { type: 'image/gif' }), 'image/gif', 'gif');
   }
 
   /// Renders the composed keepsake (plus any signature) to a file.
   async function publishCanvas(canvas, reuseCode) {
     var output = canvas;
-    if (state.strokes && state.strokes.length) {
+    var signed = state.signature.strokes.length;
+    if (signed && state.signature.mode === 'full') {
       output = document.createElement('canvas');
       output.width = canvas.width;
       output.height = canvas.height;
       var ctx = output.getContext('2d');
       ctx.drawImage(canvas, 0, 0);
-      drawStrokes(ctx, state.strokes, canvas.width, canvas.height);
+      drawStrokes(ctx, state.signature.strokes, canvas.width, canvas.height);
+    } else if (signed && state.shots.length) {
+      // Rebuilt rather than appended to, so the border wraps the signature
+      // instead of closing above it.
+      output = state.mode === 'strip'
+        ? composeStrip(state.shots, SIGN_BAND_HEIGHT)
+        : composeSingle(state.shots[0], SIGN_BAND_HEIGHT);
     }
     var blob = await new Promise(function (resolve) {
       output.toBlob(resolve, 'image/jpeg', 0.92);
@@ -1422,6 +1670,7 @@
 
     // Poster frame first, so the attract slideshow has something to show.
     var poster = renderFrame(640);
+    drawProps(poster.getContext('2d'), poster.width, poster.height, state.props);
 
     var chunks = [];
     var recorder;
@@ -1480,7 +1729,7 @@
     }
 
     state.composed = null;
-    state.strokes = [];
+    state.signature = { mode: 'band', strokes: [] };
     finishWith(blob, container, container.indexOf('mp4') >= 0 ? 'mp4' : 'webm',
                poster.toDataURL('image/jpeg', 0.7));
   }
@@ -1536,7 +1785,15 @@
   // ---------------------------------------------------------------- signing
 
   var INKS = ['#0E3549', '#D3A238', '#FFFFFF', '#C2185B'];
-  var signState = { strokes: [], ink: INKS[0], drawing: null };
+  var signState = { mode: 'band', strokes: [], ink: INKS[0], drawing: null };
+
+  /**
+   * The signature band appended under the photos. A guest signing the whole
+   * strip gets a 1:3 column to write in, which on a landscape iPad is about
+   * an inch and a half wide -- unusable with a finger. Writing into a wide
+   * band instead gives them the full screen, and the strokes land here.
+   */
+  var SIGN_BAND_HEIGHT = 320;
 
   function cloneStroke(stroke) {
     return { color: stroke.color, width: stroke.width, points: stroke.points.slice() };
@@ -1544,7 +1801,8 @@
 
   function openSignSheet() {
     if (!state.composed) return;
-    signState.strokes = state.strokes.map(cloneStroke);
+    signState.mode = state.signature.mode || 'band';
+    signState.strokes = state.signature.strokes.map(cloneStroke);
     signState.ink = INKS[0];
 
     // Backdrop is the UNSIGNED keepsake; existing ink is redrawn on the
@@ -1552,10 +1810,61 @@
     el.signImg.src = state.composed.toDataURL('image/jpeg', 0.82);
     buildInkSwatches();
     el.signModal.classList.remove('hidden');
+    applySignMode();
 
     if (el.signImg.complete) syncSignCanvas();
     else el.signImg.onload = syncSignCanvas;
     noteActivity();
+  }
+
+  /**
+   * Switching mode throws the strokes away, because they are normalised to
+   * whichever surface they were drawn on and mean nothing on the other one.
+   * Only ask when there is something to lose.
+   */
+  function setSignMode(mode) {
+    if (signState.mode === mode) return;
+    if (signState.strokes.length &&
+        !window.confirm('Cambiar borra lo que escribiste. ¿Seguir?\n\n'
+                        + 'Switching clears what you wrote. Continue?')) return;
+    signState.mode = mode;
+    signState.strokes = [];
+    signState.drawing = null;
+    applySignMode();
+    noteActivity();
+  }
+
+  function applySignMode() {
+    var band = signState.mode === 'band';
+    el.signStage.classList.toggle('band', band);
+    el.signStage.classList.toggle('full', !band);
+    el.signModeBand.classList.toggle('on', band);
+    el.signModeFull.classList.toggle('on', !band);
+    el.signScroll.classList.toggle('hidden', band);
+    updateSignHint();
+    // The stage changes shape, so the backing store has to follow it.
+    requestAnimationFrame(syncSignCanvas);
+  }
+
+  function updateSignHint() {
+    el.signHint.classList.toggle('gone', signState.strokes.length > 0);
+  }
+
+  /** Full mode scrolls by button: a two-finger gesture would fight the pen. */
+  function scrollSign(direction) {
+    var step = el.signStage.clientHeight * 0.7;
+    el.signStage.scrollTop += direction * step;
+    updateSignPos();
+  }
+
+  function updateSignPos() {
+    if (signState.mode === 'band') return;
+    var stage = el.signStage;
+    var span = Math.max(1, stage.scrollHeight - stage.clientHeight);
+    var pct = Math.round((stage.scrollTop / span) * 100);
+    el.signPos.textContent = pct + '%';
+    el.signUp.disabled = stage.scrollTop <= 1;
+    el.signDown.disabled = stage.scrollTop >= span - 1;
   }
 
   function closeSignSheet() {
@@ -1580,12 +1889,25 @@
   }
 
   function syncSignCanvas() {
-    var rect = el.signImg.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    el.signCanvas.width = Math.round(rect.width * dpr);
-    el.signCanvas.height = Math.round(rect.height * dpr);
+    var w, h;
+
+    if (signState.mode === 'band') {
+      var stage = el.signStage.getBoundingClientRect();
+      w = stage.width; h = stage.height;
+    } else {
+      // Track the keepsake itself, which is taller than the stage and
+      // scrolls inside it.
+      var img = el.signImg.getBoundingClientRect();
+      w = img.width; h = img.height;
+      el.signCanvas.style.height = h + 'px';
+    }
+    if (!w || !h) return;
+
+    el.signCanvas.width = Math.round(w * dpr);
+    el.signCanvas.height = Math.round(h * dpr);
     redrawSign();
+    updateSignPos();
   }
 
   function redrawSign() {
@@ -1608,6 +1930,7 @@
       el.signCanvas.setPointerCapture(event.pointerId);
       signState.drawing = { color: signState.ink, width: 0.007, points: [signPoint(event)] };
       signState.strokes.push(signState.drawing);
+      updateSignHint();
       redrawSign();
     });
 
@@ -1622,17 +1945,25 @@
       el.signCanvas.addEventListener(type, function () { signState.drawing = null; });
     });
 
+    el.signModeBand.addEventListener('click', function () { setSignMode('band'); });
+    el.signModeFull.addEventListener('click', function () { setSignMode('full'); });
+    el.signUp.addEventListener('click', function () { scrollSign(-1); });
+    el.signDown.addEventListener('click', function () { scrollSign(1); });
+    el.signStage.addEventListener('scroll', updateSignPos);
+
     el.signUndo.addEventListener('click', function () {
       signState.strokes.pop();
       redrawSign();
+      updateSignHint();
     });
     el.signClear.addEventListener('click', function () {
       signState.strokes = [];
       redrawSign();
+      updateSignHint();
     });
     el.signCancel.addEventListener('click', closeSignSheet);
     el.signDone.addEventListener('click', async function () {
-      state.strokes = signState.strokes.map(cloneStroke);
+      state.signature = { mode: signState.mode, strokes: signState.strokes.map(cloneStroke) };
       closeSignSheet();
       // Reuse the code so a guest who already scanned the QR gets the
       // signed version rather than the one from before they signed.
@@ -1646,6 +1977,204 @@
     });
   }
 
+  // ------------------------------------------------------- decorate a frame
+
+  /**
+   * Props after the fact. Props chosen at the camera are copied onto every
+   * frame as it is shot, which is fine for a crown you wear through all four -
+   * but a strip where each frame is decorated differently is the whole point of
+   * a strip. Here each frame is shown one at a time, big, with its own props.
+   */
+  var decorIndex = 0;
+
+  function decorShot() { return state.shots[decorIndex] || null; }
+
+  var decorProps = propLayer({
+    // The image, not its wrapper: the normalised coordinates are the photo's,
+    // and letterboxing inside the stage would shift every prop.
+    host: function () { return el.decorImg; },
+    layer: function () { return el.decorProps; },
+    props: function () { var shot = decorShot(); return shot ? shot.props : []; },
+    enabled: function () { return !el.decorModal.classList.contains('hidden'); },
+    // A crown dropped on a frame whose face we already know goes straight onto
+    // the head, rather than into the middle for the guest to drag up.
+    fit: function (prop) { fitPropToFace(prop, decorShot(), nextFaceIndex(decorShot())); },
+    onChange: function () {
+      invalidateShot(decorShot());
+      buildDecorPalette();
+      renderDecorFrames();
+    }
+  });
+
+  // ---------------------------------------------------------- face anchoring
+
+  /**
+   * Faces are found once per frame and kept on the shot. Detection runs on the
+   * capture canvas, which is already mirrored and cropped, so the coordinates
+   * belong to the photo the guest actually receives - not the raw video.
+   */
+  async function facesFor(shot) {
+    if (!shot || !window.BoothFaces) return [];
+    if (shot.faces) return shot.faces;
+    if (shot.facesPending) return shot.facesPending;
+    shot.facesPending = window.BoothFaces.detect(shot.canvas).then(function (found) {
+      shot.faces = found;
+      shot.facesPending = null;
+      return found;
+    }).catch(function () {
+      shot.faces = [];
+      shot.facesPending = null;
+      return [];
+    });
+    return shot.facesPending;
+  }
+
+  /** Spread props across the faces present, so four heads get four crowns. */
+  function nextFaceIndex(shot) {
+    if (!shot || !shot.faces || shot.faces.length < 2) return 0;
+    var anchored = shot.props.filter(function (p) { return p.anchor; }).length;
+    return anchored % shot.faces.length;
+  }
+
+  function fitPropToFace(prop, shot, faceIndex) {
+    if (!prop || !prop.anchor || !shot || !shot.faces || !shot.faces.length) return false;
+    if (!window.BoothFaces) return false;
+    var face = shot.faces[Math.min(faceIndex || 0, shot.faces.length - 1)];
+    var placed = window.BoothFaces.place(face, prop.anchor, prop.aspect || 1,
+                                         { w: shot.canvas.width, h: shot.canvas.height });
+    if (!placed) return false;
+    prop.x = placed.x;
+    prop.y = placed.y;
+    prop.h = clamp(placed.h, 0.08, 0.8);
+    prop.r = placed.r;
+    return true;
+  }
+
+  /** The "a la cara" button: re-snap everything anchored on this frame. */
+  async function fitAllToFaces() {
+    var shot = decorShot();
+    if (!shot) return;
+    var anchored = shot.props.filter(function (p) { return p.anchor; });
+    if (!anchored.length) {
+      toast('Primero elige una corona \u00b7 Add a crown or mask first');
+      return;
+    }
+
+    setDecorBusy(true);
+    var faces = await facesFor(shot);
+    setDecorBusy(false);
+
+    if (!faces.length) {
+      toast(window.BoothFaces && window.BoothFaces.unavailable()
+        ? 'No se pudo cargar \u00b7 Face fitting unavailable'
+        : 'No encontr\u00e9 una cara \u00b7 No face found - drag it yourself');
+      return;
+    }
+
+    var fitted = 0;
+    anchored.forEach(function (prop, index) {
+      if (fitPropToFace(prop, shot, index % faces.length)) fitted++;
+    });
+    invalidateShot(shot);
+    decorProps.render();
+    renderDecorFrames();
+    if (fitted) toast(faces.length > 1
+      ? '\u00a1Listo! \u00b7 Fitted to ' + faces.length + ' faces'
+      : '\u00a1Listo! \u00b7 Fitted to the face');
+    noteActivity();
+  }
+
+  function setDecorBusy(busy) {
+    el.decorFit.disabled = busy;
+    el.decorFit.classList.toggle('busy', busy);
+  }
+
+
+  function canDecorate() {
+    return state.shots.length > 0 && (state.mode === 'strip' || state.mode === 'single');
+  }
+
+  function openDecorSheet() {
+    if (!canDecorate()) return;
+    decorIndex = 0;
+    el.decorModal.classList.remove('hidden');
+    showDecorFrame();
+    noteActivity();
+  }
+
+  function closeDecorSheet() {
+    el.decorModal.classList.add('hidden');
+    el.decorProps.innerHTML = '';
+  }
+
+  function showDecorFrame() {
+    var shot = decorShot();
+    if (!shot) return closeDecorSheet();
+
+    // Warm the detector for this frame in the background: by the time the
+    // guest has picked a crown, the face is usually already known.
+    facesFor(shot);
+
+    // The backdrop is the bare photo; the props on top are live nodes, so
+    // reopening never shows a prop twice.
+    if (!shot.previewUrl) shot.previewUrl = shot.canvas.toDataURL('image/jpeg', 0.82);
+    var wasSrc = el.decorImg.getAttribute('src');
+    el.decorImg.src = shot.previewUrl;
+
+    renderDecorFrames();
+    buildDecorPalette();
+    if (wasSrc === shot.previewUrl && el.decorImg.complete) decorProps.render();
+    else el.decorImg.onload = function () { decorProps.render(); };
+  }
+
+  function buildDecorPalette() {
+    buildPalette(el.decorCats, el.decorRow, decorProps, buildDecorPalette);
+  }
+
+  /** Thumbnails of every frame, so the guest can see and pick what to decorate. */
+  function renderDecorFrames() {
+    el.decorFrames.innerHTML = '';
+    if (state.shots.length < 2) return;
+    state.shots.forEach(function (shot, index) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'decor-frame' + (index === decorIndex ? ' on' : '');
+      button.setAttribute('aria-label', 'Foto ' + (index + 1));
+      var img = document.createElement('img');
+      img.src = frameImage(shot).toDataURL('image/jpeg', 0.5);
+      img.alt = '';
+      button.appendChild(img);
+      var badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = index + 1;
+      button.appendChild(badge);
+      button.addEventListener('click', function () {
+        if (index === decorIndex) return;
+        decorIndex = index;
+        showDecorFrame();
+        noteActivity();
+      });
+      el.decorFrames.appendChild(button);
+    });
+  }
+
+  function wireDecorSheet() {
+    el.decorFit.addEventListener('click', fitAllToFaces);
+    el.decorCancel.addEventListener('click', function () {
+      closeDecorSheet();
+      noteActivity();
+    });
+    el.decorDone.addEventListener('click', async function () {
+      closeDecorSheet();
+      // Keep the signature and the guest link: only the pixels inside the
+      // frames changed, so anyone who already scanned gets the decorated one.
+      await composeStills(true);
+    });
+    window.addEventListener('resize', function () {
+      if (!el.decorModal.classList.contains('hidden')) decorProps.render();
+    });
+  }
+
   // ---------------------------------------------------------------- review
 
   /// A single blink should not cost the guest all four shots.
@@ -1655,13 +2184,13 @@
     el.redoThumbs.innerHTML = '';
     if (!canRedo) return;
 
-    state.shots.forEach(function (canvas, index) {
+    state.shots.forEach(function (shot, index) {
       var button = document.createElement('button');
       button.type = 'button';
       button.setAttribute('aria-label', 'Repetir foto ' + (index + 1));
 
       var img = document.createElement('img');
-      img.src = canvas.toDataURL('image/jpeg', 0.6);
+      img.src = frameImage(shot).toDataURL('image/jpeg', 0.6);
       img.alt = '';
       button.appendChild(img);
 
@@ -1694,7 +2223,7 @@
 
       showOverlay('', 'flash');
       shutter();
-      state.shots[index] = renderFrame(1440);
+      state.shots[index] = newShot(1440);
       await sleep(250);
       state.redoIndex = -1;
 
@@ -1745,6 +2274,10 @@
 
     var file = new File([state.result.blob], state.result.filename, { type: state.result.mime });
     var canShareFile = config.enableShare && navigator.canShare && navigator.canShare({ files: [file] });
+
+    if (canDecorate()) {
+      addAction('🎨', 'Decorar', 'Add props to each photo', openDecorSheet);
+    }
 
     if (config.enableSign && state.composed) {
       addAction('✍️', 'Firmar', 'Sign it', openSignSheet);
@@ -1826,7 +2359,7 @@
       state.result = null;
     }
     state.composed = null;
-    state.strokes = [];
+    state.signature = { mode: 'band', strokes: [] };
     state.cancelled = true;
     state.redoIndex = -1;
     state.props = [];
@@ -2081,7 +2614,9 @@
   bind();
   bindAdmin();
   bindSigning();
+  wireDecorSheet();
   watchHealth();
+  loadPropArt();
   setPhase('attract');
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {

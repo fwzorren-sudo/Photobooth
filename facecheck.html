@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Face check</title>
+<style>
+  :root { --bg:#eef4fb; --ink:#12314f; --soft:#5b7288; --line:#c7d7e8; --accent:#2f7ec9; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#0e1a26; --ink:#e8f1fa; --soft:#9db3c7; --line:#27435c; --accent:#5aa9e8; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system, system-ui, sans-serif; padding:14px; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  p.note { color:var(--soft); margin:0 0 12px; max-width:62ch; }
+  .stage { position:relative; display:inline-block; line-height:0; max-width:100%;
+           border-radius:12px; overflow:hidden; border:2px solid var(--line); background:#000; }
+  video, canvas { display:block; max-width:100%; height:auto; }
+  canvas { position:absolute; left:0; top:0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+  button { font:600 15px -apple-system, system-ui, sans-serif; color:var(--ink);
+           background:#fff2; border:1.5px solid var(--line); border-radius:11px; padding:10px 16px; }
+  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  #out { font:13px/1.6 ui-monospace, Menlo, monospace; white-space:pre-wrap;
+         background:#0002; border:1px solid var(--line); border-radius:10px; padding:10px; margin-top:10px; }
+</style>
+</head>
+<body>
+<h1>Face check</h1>
+<p class="note">Point this at a face in the room you'll actually shoot in. The box and
+dots are what BlazeFace found; the crown is placed by the booth's own
+<code>BoothFaces.place()</code>, so if it sits right here it sits right on the strip.
+Everything is mirrored the way the booth mirrors it.</p>
+
+<div class="row">
+  <button id="start">Start camera</button>
+  <button id="crown" class="on">Crown</button>
+  <button id="marks" class="on">Landmarks</button>
+</div>
+
+<div class="stage">
+  <video id="v" playsinline muted autoplay></video>
+  <canvas id="c"></canvas>
+</div>
+<div id="out">idle</div>
+
+<script src="faces.js"></script>
+<script>
+(function () {
+  var v = document.getElementById('v'), c = document.getElementById('c');
+  var out = document.getElementById('out'), ctx = c.getContext('2d');
+  var showCrown = true, showMarks = true, running = false;
+  var art = new Image(); art.src = 'props/crown-gold.png';
+  var anchor = { at: 'crown', seat: 0.93 };
+  var times = [];
+
+  document.getElementById('crown').addEventListener('click', function () {
+    showCrown = !showCrown; this.classList.toggle('on', showCrown);
+  });
+  document.getElementById('marks').addEventListener('click', function () {
+    showMarks = !showMarks; this.classList.toggle('on', showMarks);
+  });
+
+  document.getElementById('start').addEventListener('click', async function () {
+    if (running) return;
+    this.disabled = true;
+    out.textContent = 'asking for the camera...';
+    try {
+      v.srcObject = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 } }, audio: false });
+      await v.play();
+    } catch (err) { out.textContent = 'camera refused: ' + err; return; }
+
+    out.textContent = 'loading the face model (about 1.5MB)...';
+    var model = await window.BoothFaces.load();
+    if (!model) { out.textContent = 'the face model did not load - check vendor/tfjs/'; return; }
+    running = true;
+    loop();
+  });
+
+  // The booth detects on the mirrored capture canvas, so mirror here too:
+  // otherwise every coordinate is flipped relative to the photo guests get.
+  function mirrored() {
+    var w = v.videoWidth, h = v.videoHeight;
+    var cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    var g = cv.getContext('2d');
+    g.translate(w, 0); g.scale(-1, 1);
+    g.drawImage(v, 0, 0, w, h);
+    return cv;
+  }
+
+  async function loop() {
+    if (!v.videoWidth) return requestAnimationFrame(loop);
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.style.width = v.clientWidth + 'px';
+
+    var frame = mirrored();
+    var t0 = performance.now();
+    var faces = await window.BoothFaces.detect(frame);
+    var ms = performance.now() - t0;
+    times.push(ms); if (times.length > 30) times.shift();
+
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(frame, 0, 0);
+
+    faces.forEach(function (f, i) {
+      ctx.strokeStyle = i === 0 ? '#3ad17a' : '#f5c542';
+      ctx.lineWidth = Math.max(c.width / 320, 2);
+      ctx.strokeRect(f.box.x, f.box.y, f.box.w, f.box.h);
+
+      if (showMarks) {
+        [[f.eyeRight,'#ff5d73'], [f.eyeLeft,'#ff5d73'], [f.nose,'#59c3ff'],
+         [f.mouth,'#ffd166'], [f.earRight,'#b58cff'], [f.earLeft,'#b58cff']]
+        .forEach(function (pair) {
+          ctx.fillStyle = pair[1];
+          ctx.beginPath();
+          ctx.arc(pair[0].x, pair[0].y, Math.max(c.width / 200, 3), 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      if (showCrown && art.complete && art.naturalWidth) {
+        var aspect = art.naturalWidth / art.naturalHeight;
+        var p = window.BoothFaces.place(f, anchor, aspect, { w: c.width, h: c.height });
+        if (p) {
+          var hh = p.h * c.height * 0.85, ww = hh * aspect;
+          ctx.save();
+          ctx.translate(p.x * c.width, p.y * c.height);
+          ctx.rotate(p.r * Math.PI / 180);
+          ctx.drawImage(art, -ww / 2, -hh / 2, ww, hh);
+          ctx.restore();
+        }
+      }
+    });
+
+    var avg = times.reduce(function (a, b) { return a + b; }, 0) / times.length;
+    out.textContent =
+      'faces: ' + faces.length +
+      '\ndetect: ' + ms.toFixed(0) + ' ms  (avg ' + avg.toFixed(0) + ' ms over ' + times.length + ')' +
+      '\nframe: ' + c.width + ' x ' + c.height +
+      (faces[0] ? '\neye span: ' + Math.hypot(faces[0].eyeLeft.x - faces[0].eyeRight.x,
+                                              faces[0].eyeLeft.y - faces[0].eyeRight.y).toFixed(0) + ' px' +
+                  '\nconfidence: ' + faces[0].score.toFixed(3) : '');
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>

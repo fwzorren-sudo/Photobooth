@@ -175,9 +175,31 @@
     display: flex; flex-direction: column; gap: 12px; align-items: center;
     max-width: 96vw; max-height: 94vh; box-shadow: 0 24px 60px var(--shadow);
   }
-  .sign-stage { position: relative; line-height: 0; max-height: 72vh; }
-  .sign-stage img { max-height: 72vh; max-width: 88vw; width: auto; display: block; border-radius: 10px; }
-  #signCanvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; border-radius: 10px; }
+  .sign-modes { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* Band mode is the default: a wide, shallow pad that fills the screen, so a
+     finger has room to write. Full mode fits the keepsake to the width and
+     scrolls, which is still far wider than fitting its height ever was. */
+  .sign-stage { position: relative; line-height: 0; border-radius: 10px; overflow: hidden; }
+  .sign-stage.band { width: min(88vw, 1100px); aspect-ratio: 27 / 8;
+                     background: var(--surface); border: 2px dashed var(--border); }
+  .sign-stage.band img { display: none; }
+  .sign-stage.full { width: min(88vw, 1100px); max-height: 56vh; }
+  .sign-stage.full img { width: 100%; display: block; }
+  .sign-stage.full .sign-hint { display: none; }
+  #signCanvas { position: absolute; left: 0; top: 0; width: 100%; touch-action: none; }
+  .sign-stage.band #signCanvas { height: 100%; }
+
+  .sign-hint {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font: 600 clamp(15px, 2.4vh, 22px)/1.3 -apple-system, system-ui, sans-serif; color: var(--ink-soft);
+    opacity: .55; pointer-events: none; letter-spacing: .02em;
+  }
+  .sign-hint.gone { display: none; }
+
+  .sign-scroll { display: flex; gap: 12px; align-items: center; justify-content: center; }
+  .sign-pos { font: 600 14px -apple-system, system-ui, sans-serif; color: var(--ink-soft);
+              font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: center; }
   .sign-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
   .sign-colors { display: flex; gap: 8px; }
   .ink {
@@ -186,6 +208,55 @@
   }
   .ink.on { border-color: var(--accent); transform: scale(1.12); }
   .sign-tools .btn { padding: 12px 18px; font-size: 16px; }
+
+  /* ---------- decorate a frame ---------- */
+
+  /* One frame at a time, as large as the sheet allows: props are placed with a
+     fingertip, and the strip-sized thumbnails on the review screen are far too
+     small to aim at. */
+  .decor-sheet { gap: 10px; }
+  .decor-stage { position: relative; line-height: 0; border-radius: 12px; overflow: hidden;
+                 background: var(--surface); box-shadow: 0 10px 30px var(--shadow); }
+  /* Sized off the height, not the width: the thumbnails, pills, prop tray and
+     buttons all have to fit under it on a landscape iPad without the sheet
+     spilling off the screen. */
+  #decorImg { display: block; width: min(84vw, 52vh * 4 / 3); height: auto; touch-action: none; }
+  #decorProps { position: absolute; inset: 0; }
+
+  .decor-frames { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .decor-frame {
+    position: relative; padding: 0; width: 86px; height: 65px; border-radius: 10px;
+    overflow: hidden; background: var(--surface); border: 3px solid var(--border);
+  }
+  .decor-frame.on { border-color: var(--accent); }
+  .decor-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .decor-frame .badge {
+    position: absolute; left: 4px; bottom: 4px; min-width: 20px; height: 20px;
+    border-radius: 10px; background: rgba(0,0,0,.6); color: #fff;
+    font: 700 13px/20px -apple-system, system-ui, sans-serif; text-align: center;
+  }
+
+  .decor-cats { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  /* One row that scrolls sideways, so adding props never grows the sheet. */
+  .decor-row { display: flex; gap: 10px; flex-wrap: nowrap;
+               overflow-x: auto; max-width: min(84vw, 900px); padding: 2px 2px 6px;
+               scrollbar-width: none;
+               /* `safe` keeps the first tile reachable once the row overflows;
+                  browsers without it fall back to the plain centring above. */
+               justify-content: center; justify-content: safe center; }
+  .decor-row .prop-btn { flex: 0 0 auto; }
+  .decor-row::-webkit-scrollbar { display: none; }
+  .decor-hint { flex: 1 1 260px; font-size: 13px; font-weight: 600; color: var(--ink-soft);
+                line-height: 1.35; text-align: left; }
+  .decor-hint span { display: block; opacity: .8; font-weight: 500; }
+  /* Detection takes a moment the first time, while the model loads. */
+  #decorFit.busy { opacity: .55; }
+  #decorFit.busy::after {
+    content: ''; width: 13px; height: 13px; margin-left: 8px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    display: inline-block; animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg) } }
 
   /* Video guestbook playback on the review screen. */
   #resultVideo {
@@ -294,6 +365,10 @@
     will-change: transform;
     line-height: 1;
   }
+  /* Artwork props: the node is already sized to the art's aspect ratio, so the
+     image just fills it. -webkit-user-drag stops iOS lifting it out mid-drag. */
+  .prop img { width: 100%; height: 100%; display: block; pointer-events: none;
+              -webkit-user-drag: none; user-select: none; }
 
   #shots { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; }
   #shots img { width: 68px; height: 51px; object-fit: cover; border-radius: 8px; border: 2px solid rgba(255,255,255,.9); }
@@ -336,6 +411,10 @@
     background: var(--surface); border: 1.5px solid var(--border);
     font-size: 42px; display: grid; place-items: center;
   }
+  /* Artwork tiles get a tinted ground: a silver tiara on white is invisible. */
+  .prop-btn.art { background: linear-gradient(#eef2f8, #dae3ee); }
+  .prop-btn img { max-width: 90%; max-height: 90%; object-fit: contain;
+                  filter: drop-shadow(0 1px 2px rgba(0,0,0,.28)); }
   .tray-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .hint { font-size: 13px; color: var(--ink-soft); font-weight: 600; }
 
@@ -499,9 +578,19 @@
 
   <div class="modal hidden" id="signModal">
     <div class="sign-sheet">
+      <div class="sign-modes">
+        <button class="pill on" id="signModeBand">✍️ Firma<span class="sub">Sign a line</span></button>
+        <button class="pill" id="signModeFull">🎞️ Toda la tira<span class="sub">Whole strip</span></button>
+      </div>
       <div class="sign-stage" id="signStage">
         <img id="signImg" alt="">
         <canvas id="signCanvas"></canvas>
+        <div class="sign-hint" id="signHint">Escribe aquí · Write here</div>
+      </div>
+      <div class="sign-scroll hidden" id="signScroll">
+        <button class="icon-btn" id="signUp" aria-label="Subir">▲</button>
+        <span class="sign-pos" id="signPos"></span>
+        <button class="icon-btn" id="signDown" aria-label="Bajar">▼</button>
       </div>
       <div class="sign-tools">
         <div class="sign-colors" id="signColors"></div>
@@ -509,6 +598,24 @@
         <button class="btn" id="signClear">Limpiar<span class="sub">Clear</span></button>
         <button class="btn" id="signCancel">Cancelar<span class="sub">Cancel</span></button>
         <button class="btn primary" id="signDone">✓ Listo<span class="sub">Done</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="decorModal">
+    <div class="sign-sheet decor-sheet">
+      <div class="decor-frames" id="decorFrames"></div>
+      <div class="decor-stage" id="decorStage">
+        <img id="decorImg" alt="">
+        <div id="decorProps"></div>
+      </div>
+      <div class="decor-cats" id="decorCats"></div>
+      <div class="decor-row" id="decorRow"></div>
+      <div class="sign-tools">
+        <div class="decor-hint">Arrastra para mover · pellizca para girar · toca dos veces para quitar<span>Drag to move · pinch to resize and spin · double-tap to remove</span></div>
+        <button class="btn" id="decorFit">✨ A la cara<span class="sub">Fit to face</span></button>
+        <button class="btn" id="decorCancel">Cancelar<span class="sub">Cancel</span></button>
+        <button class="btn primary" id="decorDone">✓ Listo<span class="sub">Done</span></button>
       </div>
     </div>
   </div>
@@ -540,6 +647,7 @@
 <script src="qrcode.js"></script>
 <script src="gif.js"></script>
 <script src="share.js"></script>
+<script src="faces.js"></script>
 <script src="booth.js"></script>
 </body>
 </html>

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400">
+  <defs>
+    <linearGradient id="maskGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE9A8"/>
+      <stop offset=".3" stop-color="#E8B843"/>
+      <stop offset=".62" stop-color="#B27C17"/>
+      <stop offset="1" stop-color="#7E5410"/>
+    </linearGradient>
+    <mask id="eyes">
+      <rect width="720" height="400" fill="#fff"/>
+      <!-- cat-eye holes: wide almonds tilted up at the outer corner -->
+      <ellipse cx="228" cy="200" rx="104" ry="50" fill="#000" transform="rotate(-8 228 200)"/>
+      <ellipse cx="492" cy="200" rx="104" ry="50" fill="#000" transform="rotate(8 492 200)"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#eyes)">
+    <path fill="url(#maskGold)" stroke="#6E4A0E" stroke-width="6" d="
+      M360 168
+      C 330 122, 268 92, 196 90
+      C 118 88, 56 120, 34 176
+      C 22 208, 36 246, 78 272
+      C 140 310, 236 314, 296 280
+      C 334 258, 352 224, 360 196
+      C 368 224, 386 258, 424 280
+      C 484 314, 580 310, 642 272
+      C 684 246, 698 208, 686 176
+      C 664 120, 602 88, 524 90
+      C 452 92, 390 122, 360 168 Z"/>
+  </g>
+
+  <!-- filigree over the brow -->
+  <g fill="none" stroke="#FFF2C8" stroke-width="5" opacity=".7" stroke-linecap="round">
+    <path d="M112 152 C 156 120, 214 112, 264 124"/>
+    <path d="M608 152 C 564 120, 506 112, 456 124"/>
+    <path d="M96 246 C 140 274, 202 282, 250 270"/>
+    <path d="M624 246 C 580 274, 518 282, 470 270"/>
+  </g>
+
+  <!-- a filigree curl and a stone at the bridge -->
+  <path fill="none" stroke="#FFF2C8" stroke-width="5" opacity=".8"
+        d="M360 178 C 348 196, 348 214, 360 230 C 372 214, 372 196, 360 178 Z"/>
+  <g stroke="#6E4A0E" stroke-width="3">
+    <circle cx="228" cy="128" r="13" fill="#D81E4A"/>
+    <circle cx="492" cy="128" r="13" fill="#D81E4A"/>
+    <circle cx="360" cy="150" r="12" fill="#2E6FD4"/>
+    <circle cx="66"  cy="196" r="9"  fill="#D81E4A"/>
+    <circle cx="654" cy="196" r="9"  fill="#D81E4A"/>
+  </g>
+</svg>
