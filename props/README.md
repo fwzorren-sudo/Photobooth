@@ -10,6 +10,9 @@ camera or afterwards with **Decorar** on the review screen.
    crowns here are 150-250KB each as lossy WebP against 500-750KB as PNG, and
    the alpha channel comes through byte-exact. **PNG for flat or vector-ish
    art**, where it is already small and lossless.
+   Originals belong in `props-master/supplied/` with a line in its
+   `sources.json`; `build.js` writes the trimmed, scaled, encoded file here.
+
 2. Add a line to `manifest.json`:
 
    ```json
@@ -92,12 +95,18 @@ the lens gets a bigger crown, and a tilted head gets a tilted one.
 
 ## Where these came from
 
-The four crowns and tiaras are real artwork, supplied and dropped in. They are
-about 700x550 after trimming - enough for any sensible size, very slightly soft
-only if a guest pinches one to fill a whole single photo.
+Everything in this folder is **generated**. Do not hand-edit it: the
+full-resolution originals and the script that produces these files live in
+[`../../props-master`](../../props-master), outside `web/` so they do not ride
+along to the public site.
 
-The rest (`sash`, `mask`, `mustache`, `lips`, `bubble`) are drawn here;
-`src/*.svg` are their sources and `src/rasterize.js` re-renders them at 900px
-on the long side with a transparent background. They are stand-ins, and
-replacing one needs nothing but steps 1-3 above. The crown and tiara I had
-drawn are gone: the real artwork superseded them.
+```bash
+cd ../../props-master
+node build.js --check    # confirm what is committed here matches the masters
+node build.js            # re-render
+```
+
+Most of the artwork was supplied; `mask`, `mustache`, `lips` and `bubble` are
+drawn in-house from the SVGs in `props-master/drawn/` and are stand-ins that a
+bought pack would improve on. The crown, tiara and sash I had drawn are gone -
+real artwork superseded them.
