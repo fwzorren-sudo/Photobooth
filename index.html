@@ -412,6 +412,7 @@
   }
   .hud-foot { display: flex; align-items: center; gap: 14px; justify-content: flex-end; }
   .hud-foot .hint { flex: 1 1 auto; min-width: 0; color: rgba(255,255,255,.82); font-size: 12px; }
+  .hud-foot .hint .sub { display: block; opacity: .8; }
 
   /* Chrome over video has to be light-on-dark, whatever the theme. */
   /* No backdrop-filter here on purpose: thirty of them over live video is a
@@ -509,7 +510,7 @@
   #review { flex-direction: row; gap: 26px; padding: 18px clamp(14px, 3vw, 34px); align-items: stretch; }
   .result-pane { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; }
   .result-pane h2 { margin: 0; font-size: clamp(22px, 4vh, 38px); color: var(--ink); }
-  .result-pane .sub { margin: 0; color: var(--ink-soft); font-size: clamp(13px, 2vh, 19px); }
+  .result-pane h2 .sub { display: block; margin: 4px 0 0; color: var(--ink-soft); font-size: clamp(13px, 2vh, 19px); font-weight: 400; }
   #resultImg {
     /* Grows into whatever the heading and redo row leave, rather than
        sitting small in the middle of empty space. min-height:0 is what lets
@@ -534,6 +535,15 @@
     box-shadow: 0 10px 26px var(--shadow);
   }
   #toast.show { opacity: 1; }
+
+  /* The operator's other way in: a small gear on the welcome screen. Quiet,
+     but findable, and the PIN behind it is what keeps guests out. */
+  #settingsBtn {
+    position: absolute; z-index: 2;
+    right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+    width: 40px; height: 40px; font-size: 20px; opacity: .55;
+  }
+  #settingsBtn:active { opacity: 1; }
 
   /* The operator's way in: press and hold. It sits above the screens so it
      works from any of them, but BELOW the topbar -- at 96px square it used to
@@ -638,14 +648,15 @@
     <div class="spark">✨</div>
     <h1 class="celebrant" id="attractName">Mis Quince</h1>
     <p class="event-date" id="attractDate"></p>
-    <div class="booth-label">Cabina de Fotos · Photo Booth</div>
+    <div class="booth-label" data-line data-es="Cabina de Fotos" data-en="Photo Booth"></div>
     <button class="btn primary huge" id="startBtn">
       <span>📸</span>
-      <span>¡Toca para empezar!<span class="sub">Tap to start</span></span>
+      <span data-es="¡Toca para empezar!" data-en="Tap to start"></span>
     </button>
     <div class="hashtag" id="attractTag"></div>
+    <button class="icon-btn" id="settingsBtn" aria-label="Booth settings">⚙</button>
     <div class="gallery hidden" id="gallery">
-      <div class="gallery-label">Fotos de esta noche · Tonight's photos</div>
+      <div class="gallery-label" data-line data-es="Fotos de esta noche" data-en="Tonight's photos"></div>
       <div class="gallery-row" id="galleryRow"></div>
     </div>
     <div class="warnings hidden" id="warnings"></div>
@@ -671,7 +682,7 @@
       <div id="crop">
         <div class="guide hidden" id="guide">
           <div class="guide-oval"></div>
-          <div class="guide-label">Colócate aquí · Stand here</div>
+          <div class="guide-label" data-line data-es="Colócate aquí" data-en="Stand here"></div>
         </div>
         <div id="props"></div>
       </div>
@@ -689,9 +700,9 @@
         <div class="row" id="filterRow"></div>
         <div class="row" id="propRow"></div>
         <div class="hud-foot">
-          <div class="hint" id="propHint">Arrastra · pellizca · toca dos veces para quitar<br>Drag · pinch · double-tap to remove</div>
+          <div class="hint" id="propHint" data-es="Arrastra · pellizca · toca dos veces para quitar" data-en="Drag · pinch · double-tap to remove"></div>
           <button class="btn primary shoot" id="shootBtn">
-            <span id="shootLabel">¡Foto!<span class="sub">Shoot</span></span>
+            <span id="shootLabel"></span>
           </button>
         </div>
       </div>
@@ -700,12 +711,11 @@
 
   <section id="review" class="screen hidden">
     <div class="result-pane">
-      <h2>¡Quedó preciosa!</h2>
-      <p class="sub">Looking gorgeous</p>
+      <h2 data-es="¡Quedó preciosa!" data-en="Looking gorgeous"></h2>
       <img id="resultImg" alt="Tu foto">
       <video id="resultVideo" class="hidden" playsinline controls></video>
       <div class="redo-row hidden" id="redoRow">
-        <div class="redo-hint">¿Salió mal una? Tócala para repetirla · Tap one to redo just that shot</div>
+        <div class="redo-hint" data-line data-es="¿Salió mal una? Tócala para repetirla" data-en="Tap one to redo just that shot"></div>
         <div class="redo-thumbs" id="redoThumbs"></div>
       </div>
     </div>
@@ -719,13 +729,13 @@
   <div class="modal hidden" id="signModal">
     <div class="sign-sheet">
       <div class="sign-modes">
-        <button class="pill on" id="signModeBand">✍️ Firma<span class="sub">Sign a line</span></button>
-        <button class="pill" id="signModeFull">🎞️ Toda la tira<span class="sub">Whole strip</span></button>
+        <button class="pill on" id="signModeBand" data-es="✍️ Firma" data-en="✍️ Sign a line"></button>
+        <button class="pill" id="signModeFull" data-es="🎞️ Toda la tira" data-en="🎞️ Whole strip"></button>
       </div>
       <div class="sign-stage" id="signStage">
         <img id="signImg" alt="">
         <canvas id="signCanvas"></canvas>
-        <div class="sign-hint" id="signHint">Escribe aquí · Write here</div>
+        <div class="sign-hint" id="signHint" data-line data-es="Escribe aquí" data-en="Write here"></div>
       </div>
       <div class="sign-scroll hidden" id="signScroll">
         <button class="icon-btn" id="signUp" aria-label="Subir">▲</button>
@@ -734,10 +744,10 @@
       </div>
       <div class="sign-tools">
         <div class="sign-colors" id="signColors"></div>
-        <button class="btn" id="signUndo">↶ Deshacer<span class="sub">Undo</span></button>
-        <button class="btn" id="signClear">Limpiar<span class="sub">Clear</span></button>
-        <button class="btn" id="signCancel">Cancelar<span class="sub">Cancel</span></button>
-        <button class="btn primary" id="signDone">✓ Listo<span class="sub">Done</span></button>
+        <button class="btn" id="signUndo" data-es="↶ Deshacer" data-en="↶ Undo"></button>
+        <button class="btn" id="signClear" data-es="Limpiar" data-en="Clear"></button>
+        <button class="btn" id="signCancel" data-es="Cancelar" data-en="Cancel"></button>
+        <button class="btn primary" id="signDone" data-es="✓ Listo" data-en="✓ Done"></button>
       </div>
     </div>
   </div>
@@ -752,10 +762,10 @@
       <div class="decor-cats" id="decorCats"></div>
       <div class="decor-row" id="decorRow"></div>
       <div class="sign-tools">
-        <div class="decor-hint">Arrastra para mover · pellizca para girar · toca dos veces para quitar<span>Drag to move · pinch to resize and spin · double-tap to remove</span></div>
-        <button class="btn" id="decorFit">✨ A la cara<span class="sub">Fit to face</span></button>
-        <button class="btn" id="decorCancel">Cancelar<span class="sub">Cancel</span></button>
-        <button class="btn primary" id="decorDone">✓ Listo<span class="sub">Done</span></button>
+        <div class="decor-hint" data-es="Arrastra para mover · pellizca para girar · toca dos veces para quitar" data-en="Drag to move · pinch to resize and spin · double-tap to remove"></div>
+        <button class="btn" id="decorFit" data-es="✨ A la cara" data-en="✨ Fit to face"></button>
+        <button class="btn" id="decorCancel" data-es="Cancelar" data-en="Cancel"></button>
+        <button class="btn primary" id="decorDone" data-es="✓ Listo" data-en="✓ Done"></button>
       </div>
     </div>
   </div>

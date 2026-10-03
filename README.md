@@ -78,10 +78,12 @@ There is a **video guestbook** mode for a short spoken message, and a
 on everything the booth makes. The monogram stays on the device — it is never
 committed here.
 
-The countdown is spoken out loud in Spanish and a "stand here" oval shows while
-guests get into position, so they look at the lens instead of down at the
-screen. If one frame of a strip comes out badly, tapping that thumbnail
-reshoots **just that frame** and keeps the rest.
+A "stand here" oval shows while guests get into position, and the countdown
+sits at the top edge of the screen, next to the lens, so they look up at the
+camera instead of down at the controls. There is deliberately no spoken or
+beeping countdown: the booth lives in a room with a DJ. If one frame of a
+strip comes out badly, tapping that thumbnail reshoots **just that frame** and
+keeps the rest.
 
 Between guests the welcome screen shows the night's most recent keepsakes —
 which is what actually builds a queue. A small corner chip warns whoever is
@@ -113,7 +115,7 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |
 | `idle` | `45` | Seconds before the booth resets (15–600) |
-| `voice` | `0` | Set to `0` to silence the spoken countdown |
+| `lang` | `both`, `es` or `en` | Guest-facing language: Spanish with English underneath (default), or one of them |
 | `slideshow` | `0` | Set to `0` to keep tonight's photos off the welcome screen |
 | `video`, `sign` | `0` | Set to `0` to hide the video guestbook or signing |
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
@@ -142,10 +144,11 @@ lock guests into the booth — triple-click the top button to start it.
 
 ### Operator settings
 
-**Press and hold the top-left corner for three seconds** and enter the PIN
-(default `1515`). You can change the name, date, hashtag, colours, modes,
-countdown and shots per strip on the device. Those edits override the URL
-until you tap *Restablecer*.
+**Tap the small gear in the bottom-right corner of the welcome screen**, or
+press and hold the top-left corner of any screen for three seconds, and enter
+the PIN (default `1515`). You can change the name, date, hashtag, guest
+language, colours, modes, countdown and shots per strip on the device. Those
+edits override the URL until you tap *Reset*.
 
 ## Run it locally
 
@@ -177,7 +180,8 @@ in your room is what `facecheck.html` is for.
 
 ## Notes
 
-- Guest-facing text is Spanish with an English line underneath.
+- Guest-facing text is Spanish with an English line underneath by default.
+  The settings panel (or `lang=`) switches it to Spanish only or English only.
 - Designed for a landscape iPad; it degrades to a stacked layout on phones.
 - The preview and the saved photo run through the same render path, so the
   filter and props a guest arranges on screen are exactly what comes out.

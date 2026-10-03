@@ -31,8 +31,8 @@
     idleResetSeconds: 45,
     enablePrint: true,
     enableShare: true,
-    /// Spoken Spanish countdown, so guests look at the lens not the screen.
-    voice: true,
+    /// Guest-facing text: 'both' (Spanish with English underneath), 'es' or 'en'.
+    lang: 'both',
     /// Show tonight's photos on the attract screen between guests.
     slideshow: true,
     /// Video guestbook: a short spoken message for the celebrant.
@@ -58,7 +58,8 @@
     name: 'celebrantName', date: 'eventDate', tag: 'hashtag',
     accent: 'accent', secondary: 'secondary', pin: 'adminPIN', theme: 'theme',
     album: 'albumUrl', upload: 'uploadUrl', ukey: 'uploadKey',
-    countdown: 'countdownSeconds', shots: 'stripShotCount', idle: 'idleResetSeconds'
+    countdown: 'countdownSeconds', shots: 'stripShotCount', idle: 'idleResetSeconds',
+    lang: 'lang'
   };
 
   function loadConfig() {
@@ -71,7 +72,7 @@
       var raw = params.get(key);
       config[field] = typeof DEFAULTS[field] === 'number' ? Number(raw) || DEFAULTS[field] : raw;
     });
-    ['strip', 'single', 'boomerang', 'print', 'share', 'voice', 'slideshow',
+    ['strip', 'single', 'boomerang', 'print', 'share', 'slideshow',
      'video', 'sign'].forEach(function (key) {
       if (!params.has(key)) return;
       var field = key === 'sign' ? 'enableSign'
@@ -97,6 +98,7 @@
       config.enableStrip = true;
     }
     if (config.theme !== 'dark') config.theme = 'light';
+    if (['both', 'es', 'en'].indexOf(config.lang) < 0) config.lang = 'both';
     return config;
   }
 
@@ -107,6 +109,50 @@
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
   var config = loadConfig();
+
+  // ---------------------------------------------------------------- language
+
+  /**
+   * Every guest-facing string exists in Spanish and English. By default both
+   * show, Spanish on top with English in small type underneath; the settings
+   * panel (or ?lang=es / ?lang=en) can pick just one. Everything that puts
+   * words on the screen goes through these three.
+   */
+  function L(es, en) {
+    if (config.lang === 'en') return { main: en || es, sub: '' };
+    if (config.lang === 'es') return { main: es, sub: '' };
+    return { main: es, sub: en || '' };
+  }
+
+  /** One line: "Español · English", or just the chosen one. */
+  function t(es, en) {
+    var l = L(es, en);
+    return l.sub ? l.main + ' · ' + l.sub : l.main;
+  }
+
+  /**
+   * Main text with the small line underneath, built as text nodes rather
+   * than innerHTML so a label can never smuggle in markup.
+   */
+  function setBiText(node, es, en) {
+    var l = L(es, en);
+    node.textContent = l.main;
+    if (!l.sub) return;
+    var span = document.createElement('span');
+    span.className = 'sub';
+    span.textContent = l.sub;
+    node.appendChild(span);
+  }
+
+  /** Static markup declares its pair as data-es / data-en; this fills it in. */
+  function applyLanguage() {
+    document.documentElement.lang = config.lang === 'en' ? 'en' : 'es';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-es]'), function (node) {
+      var es = node.getAttribute('data-es'), en = node.getAttribute('data-en');
+      if (node.hasAttribute('data-line')) node.textContent = t(es, en);
+      else setBiText(node, es, en);
+    });
+  }
 
   /** Light blue and white, with gold as the accent metal. */
   var THEME_DEFAULTS = {
@@ -214,7 +260,7 @@
 
   var el = {};
   ['attract', 'capture', 'review', 'video', 'videoBg', 'frame', 'crop', 'props', 'shots', 'overlay',
-   'filterRow', 'propRow', 'propCats', 'propHint', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn',
+   'filterRow', 'propRow', 'propCats', 'propHint', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn', 'settingsBtn',
    'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
    'signModeBand', 'signModeFull', 'signHint', 'signScroll', 'signUp', 'signDown', 'signPos',
@@ -298,68 +344,9 @@
     } catch (e) { /* muted device or no WebAudio: the booth still works */ }
   }
 
-  // ---------------------------------------------------------------- speech
-
-  var speech = window.speechSynthesis;
-  var spanishVoice = null;
-  var englishVoice = null;
-
-  function pickVoice() {
-    if (!speech || !speech.getVoices) return;
-    var voices = speech.getVoices() || [];
-    spanishVoice = voices.filter(function (v) { return /^es/i.test(v.lang || ''); })[0] || null;
-    englishVoice = voices.filter(function (v) { return /^en/i.test(v.lang || ''); })[0] || null;
-  }
-
-  if (speech) {
-    pickVoice();
-    // Voices load asynchronously in most browsers.
-    if (speech.addEventListener) speech.addEventListener('voiceschanged', pickVoice);
-  }
-
-  var SPANISH_NUMBERS = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco',
-                         'seis', 'siete', 'ocho', 'nueve', 'diez'];
-
-  /** Queues one utterance. Callers cancel first when they need to cut in. */
-  function enqueue(text, lang, voice) {
-    var utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    if (voice) utterance.voice = voice;
-    utterance.rate = 1.05;
-    utterance.pitch = 1.05;
-    speech.speak(utterance);
-  }
-
-  function say(text) {
-    if (!config.voice || !speech) return false;
-    try {
-      speech.cancel();
-      enqueue(text, 'es-MX', spanishVoice);
-      return true;
-    } catch (e) {
-      return false;   // no speech engine: the beep still carries the countdown
-    }
-  }
-
-  /**
-   * The instruction lines, spoken Spanish then English. Counting down is
-   * understood from context in either language, so the numbers stay Spanish
-   * (see say) — but "look at the camera" is the line that actually changes how
-   * the photo comes out, and half the room doesn't speak Spanish.
-   */
-  function sayBoth(spanish, english) {
-    if (!config.voice || !speech) return false;
-    try {
-      speech.cancel();
-      enqueue(spanish, 'es-MX', spanishVoice);
-      enqueue(english, 'en-US', englishVoice);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function tick() { tone(880, 0.12, 'triangle', 0.1); }
+  // There is no audible countdown: the booth sits in a room with a DJ, and
+  // a synthetic voice counting over the music was more irritating than
+  // helpful. The digit on screen and the shutter click are the cues.
   function shutter() { tone(1600, 0.06, 'square', 0.12); setTimeout(function () { tone(900, 0.09, 'square', 0.1); }, 60); }
   function buzz() { if (navigator.vibrate) { try { navigator.vibrate(18); } catch (e) {} } }
 
@@ -477,7 +464,7 @@
   function watchHealth() {
     function checkNetwork() {
       // Offline does not stop the booth, but it does silently kill sharing.
-      setWarning('net', navigator.onLine ? null : 'Sin Wi-Fi · Offline');
+      setWarning('net', navigator.onLine ? null : t('Sin Wi-Fi', 'Offline'));
     }
     window.addEventListener('online', checkNetwork);
     window.addEventListener('offline', checkNetwork);
@@ -488,7 +475,7 @@
     if (window.BoothShare) {
       window.BoothShare.onChange(function (share) {
         setWarning('upload', share.pending
-          ? share.pending + ' sin subir · waiting to upload'
+          ? t(share.pending + ' sin subir', share.pending + ' waiting to upload')
           : null);
       });
     }
@@ -499,7 +486,7 @@
         function check() {
           var percent = Math.round(battery.level * 100);
           setWarning('battery',
-            (!battery.charging && percent <= 20) ? 'Battery ' + percent + '% · Plug in' : null);
+            (!battery.charging && percent <= 20) ? '🔋 ' + percent + '% · ' + t('Conéctala', 'Plug in') : null);
         }
         battery.addEventListener('levelchange', check);
         battery.addEventListener('chargingchange', check);
@@ -512,7 +499,7 @@
       navigator.storage.estimate().then(function (estimate) {
         if (!estimate || !estimate.quota) return;
         var freeMB = (estimate.quota - (estimate.usage || 0)) / 1048576;
-        setWarning('storage', freeMB < 120 ? 'Poco espacio · Low storage' : null);
+        setWarning('storage', freeMB < 120 ? t('Poco espacio', 'Low storage') : null);
       }).catch(function () {});
     }
     checkStorage();
@@ -581,11 +568,11 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       if (!SECURE_ORIGIN) {
         showCameraNotice(
-          'Se necesita HTTPS · This page needs HTTPS',
+          t('Se necesita HTTPS', 'This page needs HTTPS'),
           'Browsers only hand over the camera on a secure origin. Open the booth over https://, or run it from localhost while testing.');
       } else {
         showCameraNotice(
-          'Cámara no disponible · Camera unavailable',
+          t('Cámara no disponible', 'Camera unavailable'),
           'This browser will not give the page a camera. On an iPad, open the booth in Safari or from its Home Screen icon.');
       }
       return false;
@@ -619,7 +606,7 @@
       if (track) {
         track.addEventListener('ended', function () {
           cameraReady = false;
-          setWarning('camera', 'Cámara detenida · Camera stopped');
+          setWarning('camera', t('Cámara detenida', 'Camera stopped'));
         });
       }
       return true;
@@ -627,19 +614,19 @@
       var name = err && err.name;
       if (name === 'NotAllowedError' || name === 'SecurityError') {
         showCameraNotice(
-          'Permite la cámara · Camera access is off',
+          t('Permite la cámara', 'Camera access is off'),
           'Allow camera access for this page and tap again. In Safari: aA in the address bar → Website Settings → Camera → Allow. If the booth is embedded in another page, open it in its own tab instead.');
       } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
         showCameraNotice(
-          'No se encontró una cámara · No camera found',
+          t('No se encontró una cámara', 'No camera found'),
           'This device has no camera the booth can use.');
       } else if (name === 'NotReadableError') {
         showCameraNotice(
-          'La cámara está ocupada · Camera is busy',
+          t('La cámara está ocupada', 'Camera is busy'),
           'Another app is using the camera. Close it and tap again.');
       } else {
         showCameraNotice(
-          'No se pudo abrir la cámara · Could not start the camera',
+          t('No se pudo abrir la cámara', 'Could not start the camera'),
           (err && err.message) || 'Unknown error.');
       }
       return false;
@@ -1330,7 +1317,7 @@
 
     function add(item) {
       var props = opts.props();
-      if (props.length >= 8) { toast('¡Ya hay muchos! · That’s plenty of props'); return; }
+      if (props.length >= 8) { toast(t('¡Ya hay muchos!', 'That’s plenty of props')); return; }
       var offset = (props.length % 4) * 0.07;
       var prop = { id: nextPropId(), x: 0.4 + offset, y: 0.36 + offset * 0.4, h: 0.26, r: 0 };
       if (typeof item === 'string') prop.glyph = item;
@@ -1388,14 +1375,7 @@
    * Two-line control label: Spanish on top, English underneath. Built as text
    * nodes rather than innerHTML so a label can never smuggle in markup.
    */
-  function setPillLabel(button, main, sub) {
-    button.textContent = main;
-    if (!sub) return;
-    var span = document.createElement('span');
-    span.className = 'sub';
-    span.textContent = sub;
-    button.appendChild(span);
-  }
+  function setPillLabel(button, main, sub) { setBiText(button, main, sub); }
 
   function buildControls() {
     el.modeRow.innerHTML = '';
@@ -1405,7 +1385,8 @@
     modes.forEach(function (id) {
       var button = document.createElement('button');
       button.className = 'pill' + (state.mode === id ? ' on' : '');
-      setPillLabel(button, MODES[id].emoji + ' ' + MODES[id].title, MODES[id].sub);
+      var words = L(MODES[id].title, MODES[id].sub);
+      setPillLabel(button, MODES[id].emoji + ' ' + words.main, words.sub);
       button.addEventListener('click', function () {
         state.mode = id;
         buildControls();
@@ -1415,7 +1396,7 @@
     });
     el.modeRow.style.visibility = modes.length > 1 ? 'visible' : 'hidden';
 
-    el.shootLabel.innerHTML = MODES[state.mode].shoot + '<span class="sub">' + MODES[state.mode].shootSub + '</span>';
+    setBiText(el.shootLabel, MODES[state.mode].shoot, MODES[state.mode].shootSub);
 
     el.filterRow.innerHTML = '';
     FILTERS.forEach(function (filter) {
@@ -1466,7 +1447,8 @@
     if (catsEl === el.propCats) {
       var filterPill = document.createElement('button');
       filterPill.className = 'pill' + (state.tray === 'filtros' ? ' on' : '');
-      setPillLabel(filterPill, '\ud83c\udfa8 Filtros', 'Looks');
+      var looks = L('Filtros', 'Looks');
+      setPillLabel(filterPill, '\ud83c\udfa8 ' + looks.main, looks.sub);
       filterPill.addEventListener('click', function () {
         state.tray = 'filtros';
         rebuild();
@@ -1597,8 +1579,7 @@
       // as a dead booth; once it is open the stream stays, so this is instant.
       if (!cameraReady) {
         setPhase('starting');
-        showOverlay('<div class="overlay-stack"><div class="big">Encendiendo la cámara…</div>' +
-                    '<div class="hint" style="opacity:.85">Starting the camera</div></div>', 'dim');
+        showOverlay(overlayCard('Encendiendo la cámara…', 'Starting the camera'), 'dim');
       }
       if (!(await startCamera())) { showOverlay(''); setPhase('attract'); return; }
       requestWakeLock();
@@ -1614,16 +1595,12 @@
   async function runCountdown(seconds) {
     for (var value = seconds; value >= 1; value--) {
       if (state.cancelled) return false;
+      var n = state.shotIndex + 1, total = totalShots();
       var caption = state.mode === 'strip'
-        ? 'Foto ' + (state.shotIndex + 1) + ' de ' + totalShots()
-        : MODES[state.mode].title;
+        ? (config.lang === 'en' ? 'Photo ' + n + ' of ' + total : 'Foto ' + n + ' de ' + total)
+        : L(MODES[state.mode].title, MODES[state.mode].sub).main;
       showOverlay('<div class="overlay-stack"><div class="count">' + value +
                   '</div><div class="count-caption">' + caption + '</div></div>', 'counting');
-      // Beep AND speak. say() only reports that an utterance was queued, not
-      // that anything will be heard (iOS often produces nothing until the
-      // page has spoken once), so the beep is never skipped.
-      tick();
-      say(SPANISH_NUMBERS[value] || String(value));
       buzz();
       await sleep(1000);
     }
@@ -1637,7 +1614,6 @@
     state.redoIndex = -1;
     updateShotStrip();
     setPhase('shooting');
-    sayBoth('¡Miren a la cámara!', 'Look at the camera!');
 
     try {
       if (state.mode === 'video') {
@@ -1664,7 +1640,7 @@
         await composeStills();
       }
     } catch (err) {
-      toast('Algo salió mal · Something went wrong');
+      toast(t('Algo salió mal', 'Something went wrong'));
       setPhase('ready');
       showOverlay('');
     }
@@ -1676,8 +1652,14 @@
   }
 
   function processingOverlay() {
-    showOverlay('<div class="overlay-stack"><div class="big">Preparando tu recuerdo…</div>' +
-                '<div class="hint" style="opacity:.85">Building your keepsake</div></div>', 'dim');
+    showOverlay(overlayCard('Preparando tu recuerdo…', 'Building your keepsake'), 'dim');
+  }
+
+  /** A big line with the other language small underneath, for the overlay. */
+  function overlayCard(es, en) {
+    var l = L(es, en);
+    return '<div class="overlay-stack"><div class="big">' + l.main + '</div>' +
+           (l.sub ? '<div class="hint" style="opacity:.85">' + l.sub + '</div>' : '') + '</div>';
   }
 
   /**
@@ -1711,7 +1693,7 @@
         '<circle class="track" cx="70" cy="70" r="64"></circle>' +
         '<circle class="value" cx="70" cy="70" r="64" stroke-dasharray="' + circumference +
         '" stroke-dashoffset="' + (circumference * (1 - progress)) + '"></circle></svg>' +
-        '<div class="big">¡Muévete! · Keep moving!</div></div>', 'dim');
+        '<div class="big">' + t('¡Muévete!', 'Keep moving!') + '</div></div>', 'dim');
 
       var frame = renderFrame(width);
       var ctx = frame.getContext('2d');
@@ -1792,7 +1774,7 @@
   async function recordMessage() {
     var mime = videoMimeType();
     if (!mime || !stream) {
-      toast('No se puede grabar aquí · Recording unavailable');
+      toast(t('No se puede grabar aquí', 'Recording unavailable'));
       return abortCapture();
     }
 
@@ -1805,7 +1787,7 @@
     try {
       recorder = new MediaRecorder(stream, { mimeType: mime });
     } catch (err) {
-      toast('No se puede grabar aquí · Recording unavailable');
+      toast(t('No se puede grabar aquí', 'Recording unavailable'));
       return abortCapture();
     }
 
@@ -1818,7 +1800,6 @@
     var tapToFinish = function () { finishEarly = true; };
     el.frame.addEventListener('click', tapToFinish);
 
-    sayBoth('¡Cuéntale algo bonito!', 'Say something sweet!');
     recorder.start();
 
     var total = config.videoSeconds * 1000;
@@ -1835,7 +1816,7 @@
         '<circle class="value" cx="70" cy="70" r="64" stroke-dasharray="' + circumference +
         '" stroke-dashoffset="' + (circumference * (elapsed / total)) + '"></circle></svg>' +
         '<div class="big">🔴 ' + remaining + 's</div>' +
-        '<div class="big" style="font-size:.7em">Toca para terminar · Tap to finish</div></div>', 'dim');
+        '<div class="big" style="font-size:.7em">' + t('Toca para terminar', 'Tap to finish') + '</div></div>', 'dim');
       await sleep(120);
     }
 
@@ -1852,7 +1833,7 @@
     var container = mime.split(';')[0];
     var blob = new Blob(chunks, { type: container });
     if (!blob.size) {
-      toast('La grabación salió vacía · Nothing was recorded');
+      toast(t('La grabación salió vacía', 'Nothing was recorded'));
       return abortCapture();
     }
 
@@ -1953,8 +1934,8 @@
   function setSignMode(mode) {
     if (signState.mode === mode) return;
     if (signState.strokes.length &&
-        !window.confirm('Cambiar borra lo que escribiste. ¿Seguir?\n\n'
-                        + 'Switching clears what you wrote. Continue?')) return;
+        !window.confirm(t('Cambiar borra lo que escribiste. ¿Seguir?',
+                          'Switching clears what you wrote. Continue?').replace(' · ', '\n\n'))) return;
     signState.mode = mode;
     signState.strokes = [];
     signState.drawing = null;
@@ -2184,7 +2165,7 @@
     if (!shot) return;
     var anchored = shot.props.filter(function (p) { return p.anchor; });
     if (!anchored.length) {
-      toast('Primero elige una corona \u00b7 Add a crown or mask first');
+      toast(t('Primero elige una corona', 'Add a crown or mask first'));
       return;
     }
 
@@ -2339,7 +2320,6 @@
     state.redoIndex = index;
     state.shotIndex = index;
     setPhase('shooting');
-    sayBoth('¡Otra vez!', 'One more!');
 
     try {
       if (!(await runCountdown(Math.max(2, config.countdownSeconds - 1)))) {
@@ -2358,7 +2338,7 @@
       await composeStills();
     } catch (err) {
       state.redoIndex = -1;
-      toast('Algo salió mal · Something went wrong');
+      toast(t('Algo salió mal', 'Something went wrong'));
       showOverlay('');
       setPhase('review');
     }
@@ -2374,10 +2354,12 @@
     qr.innerHTML = svg;                       // built here from a fixed grid
     var heading = document.createElement('div');
     heading.className = 'qr-title';
-    heading.textContent = title;
+    var words = L(title, subtitle);
+    heading.textContent = words.main;
     var sub = document.createElement('div');
     sub.className = 'qr-sub';
-    sub.textContent = subtitle;
+    sub.textContent = words.sub;
+    sub.hidden = !words.sub;
     card.appendChild(qr);
     card.appendChild(heading);
     card.appendChild(sub);
@@ -2412,7 +2394,7 @@
     }
 
     if (canShareFile) {
-      addAction('📤', 'Compartir', 'Guardar, enviar por mensaje o email', async function () {
+      addAction('📤', 'Compartir', 'Share', async function () {
         try {
           await navigator.share({ files: [file], text: shareText() });
         } catch (e) { /* the guest dismissed the sheet */ }
@@ -2441,10 +2423,10 @@
     hint.className = 'hint';
     hint.style.textAlign = 'center';
     hint.textContent = state.result.isVideo
-      ? 'Guarda o comparte el mensaje antes de terminar — no se queda en la tablet.'
-        + '  ·  Save or share the message before you finish — it does not stay on the tablet.'
-      : 'Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.'
-        + '  ·  To keep it: press and hold the photo, then Add to Photos.';
+      ? t('Guarda o comparte el mensaje antes de terminar — no se queda en la tablet.',
+          'Save or share the message before you finish — it does not stay on the tablet.')
+      : t('Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.',
+          'To keep it: press and hold the photo, then Add to Photos.');
     el.actionPane.appendChild(hint);
 
     var spacer = document.createElement('div');
@@ -2462,8 +2444,9 @@
   function addAction(icon, title, subtitle, handler, primary) {
     var button = document.createElement('button');
     button.className = 'btn' + (primary ? ' primary' : '');
-    button.innerHTML = '<span style="font-size:24px">' + icon + '</span>' +
-      '<span style="text-align:left">' + title + '<span class="sub">' + subtitle + '</span></span>';
+    var words = L(title, subtitle);
+    button.innerHTML = '<span style="font-size:24px">' + icon + '</span><span style="text-align:left"></span>';
+    setBiText(button.lastChild, words.main, words.sub);
     button.addEventListener('click', handler);
     el.actionPane.appendChild(button);
   }
@@ -2533,7 +2516,8 @@
     { group: 'Capture', key: 'countdownSeconds', label: 'Countdown (s)', type: 'number', min: 1, max: 10 },
     { key: 'stripShotCount', label: 'Shots per strip', type: 'number', min: 2, max: 6 },
     { key: 'idleResetSeconds', label: 'Auto-reset (s)', type: 'number', min: 15, max: 600 },
-    { group: 'Booth', key: 'voice', label: 'Spoken countdown', type: 'bool' },
+    { group: 'Booth', key: 'lang', label: 'Guest language', type: 'choice',
+      options: [['both', 'Español + English'], ['es', 'Español'], ['en', 'English']] },
     { key: 'enableVideo', label: 'Video message', type: 'bool' },
     { key: 'videoSeconds', label: 'Message length (s)', type: 'number', min: 5, max: 60 },
     { key: 'enableSign', label: 'Let guests sign the photo', type: 'bool' },
@@ -2574,7 +2558,7 @@
           // Stored as a data URL in localStorage: same-origin, so it never
           // taints the canvas, and it survives without a hosting step.
           if (picked.size > 250 * 1024) {
-            toast('Imagen muy grande · Keep it under 250 KB');
+            toast(t('Imagen muy grande', 'Keep it under 250 KB'));
             control.value = '';
             return;
           }
@@ -2584,7 +2568,7 @@
             saveConfig();
             applyTheme();
             buildAdmin();
-            toast('Monograma actualizado');
+            toast('Monogram updated');
           };
           reader.readAsDataURL(picked);
         });
@@ -2686,18 +2670,23 @@
       if (holdTimer) return;
       try { el.hotcorner.setPointerCapture(event.pointerId); } catch (e) { /* mouse, or unsupported */ }
       el.hotcorner.classList.add('holding');
-      holdTimer = setTimeout(function () {
-        endHold();
-        el.pinInput.value = '';
-        el.pinError.style.display = 'none';
-        el.pinModal.classList.remove('hidden');
-        // The keyboard should be up: the operator is here to type a PIN.
-        setTimeout(function () { try { el.pinInput.focus(); } catch (e) {} }, 60);
-      }, HOLD_MS);
+      holdTimer = setTimeout(function () { endHold(); openPinGate(); }, HOLD_MS);
     });
+    // The plain way in: a small gear on the welcome screen. The hidden hold
+    // gesture stays for the other screens, but a control nobody can find is
+    // not a control, and the PIN is what keeps guests out, not obscurity.
+    el.settingsBtn.addEventListener('click', openPinGate);
     ['pointerup', 'pointercancel'].forEach(function (type) {
       el.hotcorner.addEventListener(type, endHold);
     });
+
+    function openPinGate() {
+      el.pinInput.value = '';
+      el.pinError.style.display = 'none';
+      el.pinModal.classList.remove('hidden');
+      // The keyboard should be up: the operator is here to type a PIN.
+      setTimeout(function () { try { el.pinInput.focus(); } catch (e) {} }, 60);
+    }
 
     el.pinCancel.addEventListener('click', function () { el.pinModal.classList.add('hidden'); });
     el.pinOk.addEventListener('click', function () {
@@ -2717,15 +2706,18 @@
     el.adminDone.addEventListener('click', function () {
       el.adminModal.classList.add('hidden');
       applyTheme();
+      applyLanguage();
       buildControls();
+      if (state.phase === 'review' && state.result) buildActions();
     });
     el.adminReset.addEventListener('click', function () {
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
       config = loadConfig();
       applyTheme();
+      applyLanguage();
       buildAdmin();
       buildControls();
-      toast('Ajustes restablecidos');
+      toast('Settings reset');
     });
   }
 
@@ -2735,6 +2727,7 @@
     el.startBtn.addEventListener('click', beginSession);
     el.attract.addEventListener('click', function (event) {
       if (event.target === el.startBtn || el.startBtn.contains(event.target)) return;
+      if (el.settingsBtn.contains(event.target)) return;
       beginSession();
     });
     el.shootBtn.addEventListener('click', startCapture);
@@ -2763,6 +2756,7 @@
   }
 
   applyTheme();
+  applyLanguage();
   buildSparkles();
   buildControls();
   bind();
