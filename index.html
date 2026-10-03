@@ -132,8 +132,10 @@
     border-radius: 50% / 42%;
   }
   .guide-label {
-    /* Clear of the floating tray along the bottom. */
-    position: absolute; bottom: 17%; left: 50%; transform: translateX(-50%);
+    /* Just inside the top of the oval: the bottom third of the photo area is
+       under the floating tray on an iPad, and the middle is where the faces
+       are. Up here it is under neither. */
+    position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
     background: rgba(0, 0, 0, .48); color: #fff;
     padding: 8px 18px; border-radius: 999px;
     /* It used to be white-space:nowrap sized off vh, so on a narrow preview it
@@ -360,12 +362,15 @@
     overflow: hidden; background: #000;
     touch-action: none;
   }
+  /* The soft backdrop behind the photo area. It used to be a second copy of
+     the live stream under a 26px blur, which is a full-screen blur of a video
+     every frame -- the single most expensive thing on the page. Now it is a
+     32x24 canvas repainted from the preview a few times a second; stretching
+     something that small to fill the screen IS a blur, for free. */
   #videoBg {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: cover; transform: scaleX(-1);
-    filter: blur(26px) brightness(.45) saturate(1.2);
-    /* The blur samples past the edges and would show them; scale it out. */
-    scale: 1.14;
+    background: #0a1a2a;
   }
 
   /* Centred and sized by syncCropRegion(), which scales the video so the 4:3
@@ -388,7 +393,12 @@
 
   /* Floating controls. The bar itself ignores taps so the preview stays
      draggable between the buttons; the buttons take them back. */
-  .hud { position: absolute; left: 0; right: 0; z-index: 3; display: flex; pointer-events: none; }
+  .hud { position: absolute; left: 0; right: 0; z-index: 3; display: flex; pointer-events: none;
+         transition: opacity .25s ease; }
+  /* While the camera is counting or starting, the controls get out of the
+     way: the guests need to see themselves, not a tray of filters. */
+  .frame.shooting .hud { opacity: 0; pointer-events: none !important; }
+  .frame.shooting .hud > *, .frame.shooting .hud button { pointer-events: none; }
   .hud > *, .hud button { pointer-events: auto; }
   .hud-top {
     top: 0; align-items: center; gap: 10px;
@@ -404,14 +414,16 @@
   .hud-foot .hint { flex: 1 1 auto; min-width: 0; color: rgba(255,255,255,.82); font-size: 12px; }
 
   /* Chrome over video has to be light-on-dark, whatever the theme. */
+  /* No backdrop-filter here on purpose: thirty of them over live video is a
+     thirty-layer blur per frame on a tablet GPU. A slightly denser tint reads
+     just as well. */
   .hud .pill, .hud .swatch, .hud .prop-btn, .hud .icon-btn {
-    background: rgba(255,255,255,.16); color: #fff;
-    border-color: rgba(255,255,255,.3);
-    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    background: rgba(20,30,40,.55); color: #fff;
+    border-color: rgba(255,255,255,.32);
   }
   .hud .pill.on, .hud .swatch.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
   .hud .prop-btn.art { background: rgba(255,255,255,.82); }
-  .hud .icon-btn { background: rgba(0,0,0,.45); }
+  .hud .icon-btn { background: rgba(0,0,0,.5); }
 
   .hud .modes {
     display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap;
@@ -437,14 +449,23 @@
   .prop img { width: 100%; height: 100%; display: block; pointer-events: none;
               -webkit-user-drag: none; user-select: none; }
 
-  #shots { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; }
+  /* Only visible mid-strip, when the bottom bar is hidden, so it lives there. */
+  #shots { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); right: 12px; display: flex; gap: 8px; pointer-events: none; }
   #shots img { width: 68px; height: 51px; object-fit: cover; border-radius: 8px; border: 2px solid rgba(255,255,255,.9); }
 
   #overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; color: var(--on-media); }
   #overlay.dim { background: rgba(0,0,0,.32); }
   #overlay.flash { background: #fff; }
+  /* The countdown sits at the top edge, over nobody's face, with no dimming:
+     this is the moment guests most need to see themselves. On an iPad the
+     top edge is also where the lens is, so it pulls their eyes the right way. */
+  #overlay.counting {
+    place-items: start center;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  #overlay.counting .overlay-stack { gap: 2px; }
   .count {
-    font-size: min(34vh, 220px); font-weight: 900; line-height: 1;
+    font-size: min(20vh, 150px); font-weight: 900; line-height: 1;
     text-shadow: 0 0 34px var(--accent), 0 4px 18px rgba(0,0,0,.5);
     animation: pop .35s cubic-bezier(.2,1.4,.4,1);
   }
@@ -583,6 +604,7 @@
     .hud-foot .hint { display: none; }
     .hud-foot { justify-content: center; }
     .btn.shoot { font-size: 18px; padding: 11px 22px; }
+    #shots img { width: 52px; height: 39px; }
     #propCats {
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
@@ -639,7 +661,7 @@
     <div class="frame" id="frame">
       <!-- The same stream, blurred, filling whatever the photo area does not.
            A 4:3 photo on a tall screen otherwise leaves hard black bands. -->
-      <video id="videoBg" playsinline muted autoplay aria-hidden="true"></video>
+      <canvas id="videoBg" width="32" height="24" aria-hidden="true"></canvas>
       <video id="video" playsinline muted autoplay></video>
 
       <!-- Exactly the region that ends up in the photo. The capture is a 4:3

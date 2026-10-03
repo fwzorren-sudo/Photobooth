@@ -608,8 +608,6 @@
 
       videoModeAvailable = stream.getAudioTracks().length > 0;
       el.video.srcObject = stream;
-      // Same stream, blurred, behind: it fills whatever the photo area cannot.
-      if (el.videoBg) el.videoBg.srcObject = stream;
       await el.video.play();
       cameraReady = true;
       hideCameraNotice();
@@ -775,7 +773,22 @@
   }
 
   /** Call after editing a shot's props so the next compose redraws it. */
-  function invalidateShot(shot) { if (shot) shot.baked = null; }
+  function invalidateShot(shot) { if (shot) { shot.baked = null; shot.thumb = null; } }
+
+  /**
+   * The thumbnail of a shot, for the strip-progress row and the redo row.
+   * Encoded once, from a 240px canvas: the first version re-encoded every
+   * shot at full 1440px on every shutter, which is where most of the stall
+   * between frames of a strip came from.
+   */
+  function shotThumb(shot) {
+    if (shot.thumb) return shot.thumb;
+    var canvas = document.createElement('canvas');
+    canvas.width = 240; canvas.height = 180;
+    canvas.getContext('2d', { alpha: false }).drawImage(frameImage(shot), 0, 0, 240, 180);
+    shot.thumb = canvas.toDataURL('image/jpeg', 0.75);
+    return shot.thumb;
+  }
 
   /**
    * How large a prop renders. `h` is the prop's height as a fraction of the
@@ -1510,13 +1523,14 @@
     el.review.classList.toggle('hidden', phase !== 'review');
     el.capture.classList.toggle('hidden', phase === 'attract' || phase === 'review');
 
+    // Anything but 'ready' hides the whole HUD (see .frame.shooting): the
+    // controls are not usable mid-countdown and only cover the preview.
     var shooting = phase !== 'ready';
     el.shootBtn.disabled = shooting;
-    el.exitBtn.style.visibility = shooting ? 'hidden' : 'visible';
-    el.filterRow.style.opacity = el.propRow.style.opacity = el.propCats.style.opacity = shooting ? 0.3 : 1;
-    el.filterRow.style.pointerEvents = el.propRow.style.pointerEvents = el.propCats.style.pointerEvents = shooting ? 'none' : 'auto';
+    el.frame.classList.toggle('shooting', shooting);
 
     el.guide.classList.toggle('hidden', phase !== 'ready');
+    runBackdrop(phase !== 'attract' && phase !== 'review');
 
     if (phase === 'attract') {
       el.overlay.innerHTML = '';
@@ -1539,27 +1553,62 @@
     if (state.mode !== 'strip') return;
     state.shots.forEach(function (shot) {
       var img = document.createElement('img');
-      img.src = frameImage(shot).toDataURL('image/jpeg', 0.6);
+      img.src = shotThumb(shot);
       el.shots.appendChild(img);
     });
   }
 
+  // ---------------------------------------------------------------- backdrop
+
+  var backdropTimer = null;
+  function paintBackdrop() {
+    if (!el.videoBg || !cameraReady || el.video.readyState < 2) return;
+    var canvas = el.videoBg;
+    var ctx = canvas.getContext('2d', { alpha: false });
+    ctx.drawImage(el.video, 0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  /** A few frames a second is plenty for something this blurred. */
+  function runBackdrop(on) {
+    if (on && !backdropTimer) backdropTimer = setInterval(paintBackdrop, 160);
+    if (!on && backdropTimer) { clearInterval(backdropTimer); backdropTimer = null; }
+  }
+
   // ---------------------------------------------------------------- capture
 
+  var starting = false;
+
   async function beginSession() {
-    if (!(await startCamera())) return;
-    requestWakeLock();
-    state.props = [];
-    state.shots = [];
-    state.result = null;
-    state.shotIndex = 0;
-    state.filter = FILTERS[0];
-    el.video.style.filter = 'none';
-    renderPropElements();
-    buildControls();
-    setPhase('ready');
-    // The screen only has a size once it is visible.
-    requestAnimationFrame(syncCropRegion);
+    if (starting || state.phase !== 'attract') return;
+    starting = true;
+    try {
+      state.props = [];
+      state.shots = [];
+      state.result = null;
+      state.shotIndex = 0;
+      state.filter = FILTERS[0];
+      el.video.style.filter = 'none';
+      renderPropElements();
+      buildControls();
+
+      // Switch screens BEFORE waiting on the camera. Opening it takes a second
+      // or more the first time, and a tap that does nothing for that long reads
+      // as a dead booth; once it is open the stream stays, so this is instant.
+      if (!cameraReady) {
+        setPhase('starting');
+        showOverlay('<div class="overlay-stack"><div class="big">Encendiendo la cámara…</div>' +
+                    '<div class="hint" style="opacity:.85">Starting the camera</div></div>', 'dim');
+      }
+      if (!(await startCamera())) { showOverlay(''); setPhase('attract'); return; }
+      requestWakeLock();
+      showOverlay('');
+      setPhase('ready');
+      // The screen only has a size once it is visible.
+      requestAnimationFrame(syncCropRegion);
+    } finally {
+      starting = false;
+    }
   }
 
   async function runCountdown(seconds) {
@@ -1569,9 +1618,12 @@
         ? 'Foto ' + (state.shotIndex + 1) + ' de ' + totalShots()
         : MODES[state.mode].title;
       showOverlay('<div class="overlay-stack"><div class="count">' + value +
-                  '</div><div class="count-caption">' + caption + '</div></div>', 'dim');
-      // Speak the number when we can; fall back to the beep when we cannot.
-      if (!say(SPANISH_NUMBERS[value] || String(value))) tick();
+                  '</div><div class="count-caption">' + caption + '</div></div>', 'counting');
+      // Beep AND speak. say() only reports that an utterance was queued, not
+      // that anything will be heard (iOS often produces nothing until the
+      // page has spoken once), so the beep is never skipped.
+      tick();
+      say(SPANISH_NUMBERS[value] || String(value));
       buzz();
       await sleep(1000);
     }
@@ -2266,7 +2318,7 @@
       button.setAttribute('aria-label', 'Repetir foto ' + (index + 1));
 
       var img = document.createElement('img');
-      img.src = frameImage(shot).toDataURL('image/jpeg', 0.6);
+      img.src = shotThumb(shot);
       img.alt = '';
       button.appendChild(img);
 
