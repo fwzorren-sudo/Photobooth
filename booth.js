@@ -31,8 +31,9 @@
     idleResetSeconds: 45,
     enablePrint: true,
     enableShare: true,
-    /// Guest-facing text: 'both' (Spanish with English underneath), 'es' or 'en'.
-    lang: 'both',
+    /// The language the booth opens in: 'es' or 'en'. Guests can switch on the
+    /// welcome screen; it goes back to this when they finish.
+    lang: 'es',
     /// Show tonight's photos on the attract screen between guests.
     slideshow: true,
     /// Video guestbook: a short spoken message for the celebrant.
@@ -98,7 +99,7 @@
       config.enableStrip = true;
     }
     if (config.theme !== 'dark') config.theme = 'light';
-    if (['both', 'es', 'en'].indexOf(config.lang) < 0) config.lang = 'both';
+    if (config.lang !== 'en') config.lang = 'es';
     return config;
   }
 
@@ -113,44 +114,34 @@
   // ---------------------------------------------------------------- language
 
   /**
-   * Every guest-facing string exists in Spanish and English. By default both
-   * show, Spanish on top with English in small type underneath; the settings
-   * panel (or ?lang=es / ?lang=en) can pick just one. Everything that puts
-   * words on the screen goes through these three.
+   * Every guest-facing string exists in Spanish and English, and the booth
+   * shows ONE of them at a time. It used to show both, one under the other,
+   * which made every label half the size it could be and unreadable from
+   * arm's length. A guest picks on the welcome screen; `guestLang` holds that
+   * choice for their session only and is dropped when they finish.
    */
+  var guestLang = null;
+  function activeLang() { return guestLang || config.lang; }
+
+  /** The chosen language's text, in the shape older callers expect. */
   function L(es, en) {
-    if (config.lang === 'en') return { main: en || es, sub: '' };
-    if (config.lang === 'es') return { main: es, sub: '' };
-    return { main: es, sub: en || '' };
+    return { main: activeLang() === 'en' ? (en || es) : es, sub: '' };
   }
 
-  /** One line: "Español · English", or just the chosen one. */
-  function t(es, en) {
-    var l = L(es, en);
-    return l.sub ? l.main + ' · ' + l.sub : l.main;
-  }
+  function t(es, en) { return L(es, en).main; }
 
-  /**
-   * Main text with the small line underneath, built as text nodes rather
-   * than innerHTML so a label can never smuggle in markup.
-   */
-  function setBiText(node, es, en) {
-    var l = L(es, en);
-    node.textContent = l.main;
-    if (!l.sub) return;
-    var span = document.createElement('span');
-    span.className = 'sub';
-    span.textContent = l.sub;
-    node.appendChild(span);
-  }
+  /** Text nodes rather than innerHTML, so a label can never smuggle in markup. */
+  function setBiText(node, es, en) { node.textContent = t(es, en); }
 
   /** Static markup declares its pair as data-es / data-en; this fills it in. */
   function applyLanguage() {
-    document.documentElement.lang = config.lang === 'en' ? 'en' : 'es';
+    var lang = activeLang();
+    document.documentElement.lang = lang;
     Array.prototype.forEach.call(document.querySelectorAll('[data-es]'), function (node) {
-      var es = node.getAttribute('data-es'), en = node.getAttribute('data-en');
-      if (node.hasAttribute('data-line')) node.textContent = t(es, en);
-      else setBiText(node, es, en);
+      node.textContent = t(node.getAttribute('data-es'), node.getAttribute('data-en'));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#langToggle button'), function (button) {
+      button.classList.toggle('on', button.getAttribute('data-lang') === lang);
     });
   }
 
@@ -188,9 +179,7 @@
 
   // Every look is a plain CSS filter string, used verbatim for both the live
   // preview and the canvas render. That is what keeps the two identical.
-  // Every guest-facing control carries its English underneath: roughly half the
-  // guests read one language, half the other, and nobody should have to guess
-  // which pill does what.
+  // `title` is Spanish and `sub` is English; the booth shows one of them.
   var FILTERS = [
     { id: 'none', title: 'Original', sub: 'No filter', emoji: '🌈', css: 'none' },
     { id: 'noir', title: 'B y N', sub: 'B&W', emoji: '⚫️', css: 'grayscale(1) contrast(1.12)' },
@@ -220,11 +209,26 @@
 
 
   var MODES = {
-    strip: { title: 'Tira de Fotos', sub: 'Photo strip', emoji: '🎞️', shoot: '¡Foto!', shootSub: 'Shoot' },
-    single: { title: 'Foto', sub: 'Single photo', emoji: '📸', shoot: '¡Foto!', shootSub: 'Shoot' },
-    boomerang: { title: 'Boomerang', sub: 'GIF loop', emoji: '🔁', shoot: '¡Grabar!', shootSub: 'Record' },
-    video: { title: 'Mensaje', sub: 'Video message', emoji: '🎥', shoot: '¡Grabar!', shootSub: 'Record a message' }
+    strip: { emoji: '🎞️', title: 'Tira de fotos', sub: 'Photo strip',
+             shoot: 'Tomar fotos', shootSub: 'Take photos' },
+    single: { emoji: '📸', title: 'Una foto', sub: 'One photo',
+              hint: 'Un solo disparo', hintEn: 'A single shot',
+              shoot: 'Tomar foto', shootSub: 'Take photo' },
+    boomerang: { emoji: '🔁', title: 'Boomerang', sub: 'Boomerang',
+                 hint: 'Un GIF en movimiento', hintEn: 'A moving GIF',
+                 shoot: 'Grabar', shootSub: 'Record' },
+    video: { emoji: '🎥', title: 'Mensaje', sub: 'Video message',
+             hint: 'Un mensaje en video', hintEn: 'A short video message',
+             shoot: 'Grabar', shootSub: 'Record' }
   };
+
+  /** The line under a mode's name. A strip's depends on how many it takes. */
+  function modeHint(id) {
+    if (id === 'strip') {
+      return t(config.stripShotCount + ' fotos seguidas', config.stripShotCount + ' photos in a row');
+    }
+    return t(MODES[id].hint, MODES[id].hintEn);
+  }
 
   var BOOMERANG = { frames: 14, interval: 1000 / 12, delay: 0.07, width: 480 };
 
@@ -245,9 +249,6 @@
     shotIndex: 0,
     result: null,
     propCategory: PROP_CATEGORIES[0].id,
-    /// Which tray is showing: 'filtros', or a prop category id. Only one is on
-    /// screen at a time, because two stacked rows left the camera a thumbnail.
-    tray: 'filtros',
     cancelled: false,
     /// Index of the single strip frame being reshot, or -1.
     redoIndex: -1,
@@ -259,18 +260,19 @@
   };
 
   var el = {};
-  ['attract', 'capture', 'review', 'video', 'videoBg', 'frame', 'crop', 'props', 'shots', 'overlay',
-   'filterRow', 'propRow', 'propCats', 'propHint', 'modeRow', 'shootBtn', 'shootLabel', 'startBtn', 'settingsBtn',
-   'exitBtn', 'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
+  ['attract', 'capture', 'review', 'video', 'stage', 'frameWrap', 'frame', 'shots', 'overlay',
+   'rail', 'exitBtn', 'modeChip', 'shootBtn', 'shootLabel', 'filterBtn', 'filterTray', 'filterRow',
+   'modeCards', 'langToggle', 'settingsBtn',
+   'resultImg', 'actionPane', 'toast', 'hotcorner', 'attractName',
    'attractDate', 'attractTag', 'sparkles', 'pinModal', 'pinInput', 'pinError',
    'signModeBand', 'signModeFull', 'signHint', 'signScroll', 'signUp', 'signDown', 'signPos',
    'pinCancel', 'pinOk', 'adminModal', 'adminBody', 'adminDone', 'adminReset',
    'printArea', 'printImg', 'cameraNotice', 'cameraNoticeTitle', 'cameraNoticeDetail',
-   'guide', 'gallery', 'galleryRow', 'warnings', 'redoRow', 'redoThumbs',
+   'gallery', 'galleryRow', 'warnings', 'redoRow', 'redoThumbs',
    'resultVideo', 'signModal', 'signStage', 'signImg', 'signCanvas', 'signColors',
    'signUndo', 'signClear', 'signCancel', 'signDone',
-   'decorModal', 'decorFrames', 'decorStage', 'decorImg', 'decorProps',
-   'decorCats', 'decorRow', 'decorCancel', 'decorFit',
+   'decorModal', 'decorWrap', 'decorFrames', 'decorStage', 'decorImg', 'decorProps',
+   'decorCats', 'decorRow', 'decorCancel', 'decorAll', 'decorClear',
    'decorDone'].forEach(function (id) { el[id] = document.getElementById(id); });
 
   // ---------------------------------------------------------------- helpers
@@ -663,35 +665,37 @@
   })();
 
   /**
-   * Size the preview so the region that actually reaches the photo is as large
-   * as the screen allows, and mark it.
-   *
-   * The subtlety: a photo is a 4:3 centre crop of the camera, so the video and
-   * the photo are different shapes. Scaling the video to fit the screen is the
-   * wrong move -- it scales by the whole sensor, and on a portrait screen with
-   * a landscape camera that left the actual photo area at 24% of the display.
-   * Scaling by the CROP instead makes the photo area as big as it can be and
-   * lets the rest of the sensor spill past the edges as context.
+   * Make `box` the largest rectangle of the given shape that fits `container`.
+   * Used for the camera preview and for the photo in the props editor: both
+   * must be exactly the photo's shape, or what is on screen is not what is
+   * taken. Done here rather than in CSS because the pure-CSS ways of saying
+   * "contain, at this ratio" either need container queries or break when the
+   * limiting side changes.
+   */
+  function fitBox(container, box, ratio) {
+    var r = container.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    var w = Math.floor(Math.min(r.width, r.height * ratio));
+    var h = Math.round(w / ratio);
+    box.style.width = w + 'px';
+    box.style.height = h + 'px';
+    return { w: w, h: h };
+  }
+
+  /**
+   * Size the preview, then scale the video inside it so the 4:3 centre crop
+   * that becomes the photo fills the box exactly. Whatever else the sensor
+   * sees is clipped, so the preview never shows more than the photo will hold.
    */
   function syncCropRegion() {
-    if (!el.crop || !el.frame) return;
-    var rect = el.frame.getBoundingClientRect();
+    if (!el.frame || !el.frameWrap) return;
+    var size = fitBox(el.frameWrap, el.frame, 4 / 3);
     var vw = el.video.videoWidth, vh = el.video.videoHeight;
-    if (!rect.width || !rect.height || !vw || !vh) return;
-
-    var crop = cropRect();
-    var scale = Math.min(rect.width / crop.sw, rect.height / crop.sh);
-
+    if (!size || !vw || !vh) return;
+    var scale = size.w / cropRect().sw;
     // The video is positioned by hand, so object-fit has nothing to do.
     el.video.style.width = Math.round(vw * scale) + 'px';
     el.video.style.height = Math.round(vh * scale) + 'px';
-
-    var w = Math.round(crop.sw * scale), h = Math.round(crop.sh * scale);
-    el.crop.style.width = w + 'px';
-    el.crop.style.height = h + 'px';
-    el.crop.style.left = Math.round((rect.width - w) / 2) + 'px';
-    el.crop.style.top = Math.round((rect.height - h) / 2) + 'px';
-    renderPropElements();
   }
 
   function cropRect() {
@@ -740,7 +744,7 @@
   function cloneProps(props) {
     return props.map(function (prop) {
       return { id: nextPropId(), glyph: prop.glyph, src: prop.src, aspect: prop.aspect,
-               anchor: prop.anchor, x: prop.x, y: prop.y, h: prop.h, r: prop.r };
+               anchor: prop.anchor, face: prop.face, x: prop.x, y: prop.y, h: prop.h, r: prop.r };
     });
   }
 
@@ -1167,7 +1171,7 @@
       // the guest reached for.
       category.items = art[id].concat(category.items);
     });
-    buildControls();
+    if (!el.decorModal.classList.contains('hidden')) buildDecorPalette();
   }
 
   var propSerial = 0;
@@ -1327,6 +1331,7 @@
       props.push(prop);
       render();
       changed();
+      if (opts.afterAdd) opts.afterAdd(prop);
     }
 
     function remove(id) {
@@ -1353,119 +1358,110 @@
     };
   }
 
-  /** The live layer over the camera preview. */
-  var liveProps = propLayer({
-    // #crop, not #frame: prop coordinates are fractions of the CAPTURED photo,
-    // and the preview is now full-bleed, so the frame is bigger than the photo.
-    host: function () { return el.crop; },
-    layer: function () { return el.props; },
-    props: function () { return state.props; },
-    enabled: function () { return state.phase === 'ready'; },
-    // So "Quitar todo" appears as soon as there is something to clear.
-    onChange: function () { buildControls(); }
-  });
-
-  function renderPropElements() { liveProps.render(); }
-  function addProp(item) { liveProps.add(item); }
-  function clearProps() { liveProps.clear(); }
-
   // ---------------------------------------------------------------- UI build
 
-  /**
-   * Two-line control label: Spanish on top, English underneath. Built as text
-   * nodes rather than innerHTML so a label can never smuggle in markup.
-   */
-  function setPillLabel(button, main, sub) { setBiText(button, main, sub); }
+  function setPillLabel(button, es, en) { setBiText(button, es, en); }
 
+  /** Everything whose words or contents depend on settings or language. */
   function buildControls() {
-    el.modeRow.innerHTML = '';
-    var modes = enabledModes();
-    if (modes.indexOf(state.mode) === -1) state.mode = modes[0];
+    buildModeCards();
+    buildFilters();
+    updateModeChip();
+    if (state.result && state.phase === 'review') buildActions();
+    if (!el.decorModal.classList.contains('hidden')) buildDecorPalette();
+  }
 
-    modes.forEach(function (id) {
-      var button = document.createElement('button');
-      button.className = 'pill' + (state.mode === id ? ' on' : '');
-      var words = L(MODES[id].title, MODES[id].sub);
-      setPillLabel(button, MODES[id].emoji + ' ' + words.main, words.sub);
-      button.addEventListener('click', function () {
-        state.mode = id;
-        buildControls();
-        noteActivity();
-      });
-      el.modeRow.appendChild(button);
+  /** Welcome screen: one big card per thing the booth can make. */
+  function buildModeCards() {
+    el.modeCards.innerHTML = '';
+    enabledModes().forEach(function (id) {
+      var mode = MODES[id];
+      var card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'mode-card';
+      card.setAttribute('data-mode', id);
+      var icon = document.createElement('span');
+      icon.className = 'ico';
+      icon.textContent = mode.emoji;
+      var name = document.createElement('b');
+      name.textContent = t(mode.title, mode.sub);
+      var hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = modeHint(id);
+      card.appendChild(icon);
+      card.appendChild(name);
+      card.appendChild(hint);
+      card.addEventListener('click', function () { beginSession(id); });
+      el.modeCards.appendChild(card);
     });
-    el.modeRow.style.visibility = modes.length > 1 ? 'visible' : 'hidden';
+  }
 
-    setBiText(el.shootLabel, MODES[state.mode].shoot, MODES[state.mode].shootSub);
-
+  function buildFilters() {
     el.filterRow.innerHTML = '';
     FILTERS.forEach(function (filter) {
       var button = document.createElement('button');
+      button.type = 'button';
       button.className = 'swatch' + (state.filter.id === filter.id ? ' on' : '');
-      var glyph = document.createElement('span');
-      glyph.className = 'emoji';
-      glyph.textContent = filter.emoji;
+      button.setAttribute('data-filter', filter.id);
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.style.filter = filter.css;
       var name = document.createElement('span');
-      setPillLabel(name, filter.title, filter.sub);
-      button.appendChild(glyph);
+      name.textContent = t(filter.title, filter.sub);
+      button.appendChild(chip);
       button.appendChild(name);
       button.addEventListener('click', function () {
         state.filter = filter;
         el.video.style.filter = filter.css;
-        buildControls();
+        // Mark in place rather than rebuild: rebuilding would throw the row's
+        // scroll position back to the start under the guest's finger.
+        Array.prototype.forEach.call(el.filterRow.children, function (other) {
+          other.classList.toggle('on', other === button);
+        });
         noteActivity();
       });
       el.filterRow.appendChild(button);
     });
+  }
 
-    buildPalette(el.propCats, el.propRow, liveProps, buildControls);
-    applyTray();
+  /** What is being made, and how far along a strip is. */
+  function updateModeChip() {
+    var mode = MODES[state.mode];
+    el.modeChip.innerHTML = '';
+    var icon = document.createElement('span');
+    icon.className = 'ico';
+    icon.textContent = mode.emoji;
+    var name = document.createElement('span');
+    name.textContent = t(mode.title, mode.sub);
+    var detail = document.createElement('small');
+    var total = totalShots();
+    if (state.mode === 'strip' && (state.phase === 'shooting' || state.shots.length)) {
+      var n = Math.min(state.shotIndex + 1, total);
+      detail.textContent = t('Foto ' + n + ' de ' + total, 'Photo ' + n + ' of ' + total);
+    } else {
+      detail.textContent = modeHint(state.mode);
+    }
+    el.modeChip.appendChild(icon);
+    el.modeChip.appendChild(name);
+    el.modeChip.appendChild(detail);
+
+    setBiText(el.shootLabel, mode.shoot, mode.shootSub);
+    el.shootBtn.setAttribute('aria-label', t(mode.shoot, mode.shootSub));
+    el.shootBtn.classList.toggle('rec', state.mode === 'video' || state.mode === 'boomerang');
   }
 
   /**
-   * The capture screen used to show the filters AND the props at once, which
-   * cost about 100px of a screen whose whole job is to show the guest their own
-   * face. They share one row now, chosen by the pills above it.
-   */
-  function applyTray() {
-    var filters = state.tray === 'filtros';
-    el.filterRow.classList.toggle('hidden', !filters);
-    el.propRow.classList.toggle('hidden', filters);
-    // The hint is about props, so it only earns its space on a prop tray.
-    el.propHint.classList.toggle('hidden', filters);
-  }
-
-  /**
-   * The category pills and the prop tray. Shared by the camera screen and the
-   * post-capture decorator so both always offer the same props.
+   * The category pills and the prop tiles of the props editor.
    */
   function buildPalette(catsEl, rowEl, layer, rebuild) {
     catsEl.innerHTML = '';
-
-    // Only the capture screen shares its row with the filters; the decorator
-    // has no filters to show.
-    if (catsEl === el.propCats) {
-      var filterPill = document.createElement('button');
-      filterPill.className = 'pill' + (state.tray === 'filtros' ? ' on' : '');
-      var looks = L('Filtros', 'Looks');
-      setPillLabel(filterPill, '\ud83c\udfa8 ' + looks.main, looks.sub);
-      filterPill.addEventListener('click', function () {
-        state.tray = 'filtros';
-        rebuild();
-        noteActivity();
-      });
-      catsEl.appendChild(filterPill);
-    }
-
     PROP_CATEGORIES.forEach(function (category) {
       var button = document.createElement('button');
-      var live = catsEl === el.propCats;
-      var on = state.propCategory === category.id && (!live || state.tray === category.id);
-      button.className = 'pill' + (on ? ' on' : '');
+      button.type = 'button';
+      button.className = 'pill' + (state.propCategory === category.id ? ' on' : '');
       setPillLabel(button, category.title, category.sub);
       button.addEventListener('click', function () {
         state.propCategory = category.id;
-        if (live) state.tray = category.id;
         rebuild();
       });
       catsEl.appendChild(button);
@@ -1475,6 +1471,7 @@
     var active = PROP_CATEGORIES.filter(function (c) { return c.id === state.propCategory; })[0] || PROP_CATEGORIES[0];
     active.items.forEach(function (item) {
       var button = document.createElement('button');
+      button.type = 'button';
       button.className = 'prop-btn' + (typeof item === 'string' ? '' : ' art');
       if (typeof item === 'string') {
         button.textContent = item;
@@ -1490,29 +1487,24 @@
       button.addEventListener('click', function () { layer.add(item); });
       rowEl.appendChild(button);
     });
-
-    var clearButton = document.createElement('button');
-    clearButton.className = 'pill';
-    clearButton.style.visibility = layer.count() ? 'visible' : 'hidden';
-    setPillLabel(clearButton, 'Quitar todo', 'Clear all');
-    clearButton.addEventListener('click', function () { layer.clear(); rebuild(); });
-    catsEl.appendChild(clearButton);
   }
 
   function setPhase(phase) {
     state.phase = phase;
+    var onCamera = phase !== 'attract' && phase !== 'review';
     el.attract.classList.toggle('hidden', phase !== 'attract');
     el.review.classList.toggle('hidden', phase !== 'review');
-    el.capture.classList.toggle('hidden', phase === 'attract' || phase === 'review');
+    el.capture.classList.toggle('hidden', !onCamera);
 
-    // Anything but 'ready' hides the whole HUD (see .frame.shooting): the
-    // controls are not usable mid-countdown and only cover the preview.
-    var shooting = phase !== 'ready';
-    el.shootBtn.disabled = shooting;
-    el.frame.classList.toggle('shooting', shooting);
+    // Anything but 'ready' is the camera starting, counting or working: the
+    // controls step back and only the picture is left.
+    var busy = phase !== 'ready';
+    el.shootBtn.disabled = busy;
+    el.capture.classList.toggle('shooting', busy);
+    if (busy) setFilterTray(false);
 
-    el.guide.classList.toggle('hidden', phase !== 'ready');
-    runBackdrop(phase !== 'attract' && phase !== 'review');
+    // The camera screen only has a size once it is visible.
+    if (onCamera) requestAnimationFrame(syncCropRegion);
 
     if (phase === 'attract') {
       el.overlay.innerHTML = '';
@@ -1522,7 +1514,13 @@
     } else {
       stopGalleryRotation();
     }
+    updateModeChip();
     scheduleIdleReset();
+  }
+
+  function setFilterTray(open) {
+    el.filterTray.classList.toggle('open', open);
+    el.filterBtn.classList.toggle('on', open);
   }
 
   function showOverlay(html, className) {
@@ -1532,61 +1530,59 @@
 
   function updateShotStrip() {
     el.shots.innerHTML = '';
-    if (state.mode !== 'strip') return;
-    state.shots.forEach(function (shot) {
-      var img = document.createElement('img');
-      img.src = shotThumb(shot);
-      el.shots.appendChild(img);
-    });
-  }
-
-  // ---------------------------------------------------------------- backdrop
-
-  var backdropTimer = null;
-  function paintBackdrop() {
-    if (!el.videoBg || !cameraReady || el.video.readyState < 2) return;
-    var canvas = el.videoBg;
-    var ctx = canvas.getContext('2d', { alpha: false });
-    ctx.drawImage(el.video, 0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(0,0,0,.55)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  /** A few frames a second is plenty for something this blurred. */
-  function runBackdrop(on) {
-    if (on && !backdropTimer) backdropTimer = setInterval(paintBackdrop, 160);
-    if (!on && backdropTimer) { clearInterval(backdropTimer); backdropTimer = null; }
+    if (state.mode === 'strip') {
+      state.shots.forEach(function (shot) {
+        var img = document.createElement('img');
+        img.src = shotThumb(shot);
+        img.alt = '';
+        el.shots.appendChild(img);
+      });
+    }
+    updateModeChip();
   }
 
   // ---------------------------------------------------------------- capture
 
   var starting = false;
 
-  async function beginSession() {
+  async function beginSession(mode) {
     if (starting || state.phase !== 'attract') return;
     starting = true;
     try {
+      if (MODES[mode] && enabledModes().indexOf(mode) !== -1) state.mode = mode;
+      else state.mode = enabledModes()[0];
       state.props = [];
       state.shots = [];
       state.result = null;
       state.shotIndex = 0;
       state.filter = FILTERS[0];
       el.video.style.filter = 'none';
-      renderPropElements();
-      buildControls();
+      updateShotStrip();
+      buildFilters();
 
       // Switch screens BEFORE waiting on the camera. Opening it takes a second
       // or more the first time, and a tap that does nothing for that long reads
       // as a dead booth; once it is open the stream stays, so this is instant.
       if (!cameraReady) {
         setPhase('starting');
-        showOverlay(overlayCard('Encendiendo la cámara…', 'Starting the camera'), 'dim');
+        showOverlay(overlayCard('Encendiendo la cámara…', 'Starting the camera…'), 'dim');
       }
       if (!(await startCamera())) { showOverlay(''); setPhase('attract'); return; }
+
+      // The microphone is only known once the camera has been asked for. If it
+      // was refused there is no video message to record: say so, and take the
+      // card away so the next guest is not offered it.
+      if (state.mode === 'video' && !videoModeAvailable) {
+        showOverlay('');
+        setPhase('attract');
+        buildModeCards();
+        toast(t('Sin micrófono: no se puede grabar mensaje', 'No microphone, so no video message'));
+        return;
+      }
+
       requestWakeLock();
       showOverlay('');
       setPhase('ready');
-      // The screen only has a size once it is visible.
-      requestAnimationFrame(syncCropRegion);
     } finally {
       starting = false;
     }
@@ -1597,8 +1593,9 @@
       if (state.cancelled) return false;
       var n = state.shotIndex + 1, total = totalShots();
       var caption = state.mode === 'strip'
-        ? (config.lang === 'en' ? 'Photo ' + n + ' of ' + total : 'Foto ' + n + ' de ' + total)
-        : L(MODES[state.mode].title, MODES[state.mode].sub).main;
+        ? t('Foto ' + n + ' de ' + total, 'Photo ' + n + ' of ' + total)
+        : t(MODES[state.mode].title, MODES[state.mode].sub);
+      updateModeChip();
       showOverlay('<div class="overlay-stack"><div class="count">' + value +
                   '</div><div class="count-caption">' + caption + '</div></div>', 'counting');
       buzz();
@@ -1652,14 +1649,11 @@
   }
 
   function processingOverlay() {
-    showOverlay(overlayCard('Preparando tu recuerdo…', 'Building your keepsake'), 'dim');
+    showOverlay(overlayCard('Preparando tu recuerdo…', 'Building your keepsake…'), 'dim');
   }
 
-  /** A big line with the other language small underneath, for the overlay. */
   function overlayCard(es, en) {
-    var l = L(es, en);
-    return '<div class="overlay-stack"><div class="big">' + l.main + '</div>' +
-           (l.sub ? '<div class="hint" style="opacity:.85">' + l.sub + '</div>' : '') + '</div>';
+    return '<div class="overlay-stack"><div class="big">' + t(es, en) + '</div></div>';
   }
 
   /**
@@ -2086,31 +2080,53 @@
     });
   }
 
-  // ------------------------------------------------------- decorate a frame
+  // ------------------------------------------------------- the props editor
 
   /**
-   * Props after the fact. Props chosen at the camera are copied onto every
-   * frame as it is shot, which is fine for a crown you wear through all four -
-   * but a strip where each frame is decorated differently is the whole point of
-   * a strip. Here each frame is shown one at a time, big, with its own props.
+   * Props go on AFTER the photo is taken, one frame at a time, on a picture
+   * large enough to aim at.
+   *
+   * They used to be placed over the live camera as well. That looked like the
+   * fun part and was the worst part: a crown sat frozen in the middle of the
+   * screen while the people under it moved, guests had to line themselves up
+   * with it, and whatever they managed was stamped identically onto all four
+   * frames of a strip. Here the photo holds still, and a crown tapped in the
+   * tray lands on a head by itself.
    */
   var decorIndex = 0;
+  /// What each frame's props were when the editor opened, for Cancel.
+  var decorBackup = null;
 
   function decorShot() { return state.shots[decorIndex] || null; }
 
   var decorProps = propLayer({
-    // The image, not its wrapper: the normalised coordinates are the photo's,
-    // and letterboxing inside the stage would shift every prop.
+    // The image, not its wrapper: the normalised coordinates are the photo's.
     host: function () { return el.decorImg; },
     layer: function () { return el.decorProps; },
     props: function () { var shot = decorShot(); return shot ? shot.props : []; },
     enabled: function () { return !el.decorModal.classList.contains('hidden'); },
-    // A crown dropped on a frame whose face we already know goes straight onto
-    // the head, rather than into the middle for the guest to drag up.
+    // A crown dropped on a frame whose faces are already known goes straight
+    // onto a head, rather than into the middle for the guest to drag up.
     fit: function (prop) { fitPropToFace(prop, decorShot(), nextFaceIndex(decorShot())); },
+    // ...and one dropped before detection has finished follows as soon as it
+    // has, unless the guest has already moved it somewhere themselves.
+    afterAdd: function (prop) {
+      var shot = decorShot();
+      if (!prop.anchor || !shot || shot.faces) return;
+      var x = prop.x, y = prop.y;
+      facesFor(shot).then(function (faces) {
+        if (!faces.length || shot.props.indexOf(prop) === -1) return;
+        if (prop.x !== x || prop.y !== y) return;
+        var anchored = shot.props.filter(function (p) { return p.anchor; });
+        if (!fitPropToFace(prop, shot, anchored.indexOf(prop) % faces.length)) return;
+        invalidateShot(shot);
+        if (decorShot() === shot) decorProps.render();
+        renderDecorFrames();
+      });
+    },
     onChange: function () {
       invalidateShot(decorShot());
-      buildDecorPalette();
+      updateDecorButtons();
       renderDecorFrames();
     }
   });
@@ -2156,48 +2172,52 @@
     prop.y = placed.y;
     prop.h = clamp(placed.h, 0.08, 0.8);
     prop.r = placed.r;
+    // Remembered so "put on every photo" can find the same person again.
+    prop.face = shot.faces.indexOf(face);
     return true;
   }
 
-  /** The "a la cara" button: re-snap everything anchored on this frame. */
-  async function fitAllToFaces() {
-    var shot = decorShot();
-    if (!shot) return;
-    var anchored = shot.props.filter(function (p) { return p.anchor; });
-    if (!anchored.length) {
-      toast(t('Primero elige una corona', 'Add a crown or mask first'));
-      return;
+  /** Horizontal centre of a detected face, as a fraction of the photo. */
+  function faceCentre(face, shot) {
+    return (face.box.x + face.box.w / 2) / shot.canvas.width;
+  }
+
+  /**
+   * "Put on every photo": copy this frame's props to the others. People move
+   * between frames, so anything fitted to a face is re-fitted on each frame to
+   * whoever is standing nearest to where that person was.
+   */
+  async function decorateAllFrames() {
+    var source = decorShot();
+    if (!source || state.shots.length < 2 || !source.props.length) return;
+    el.decorAll.classList.add('busy');
+    try {
+      await facesFor(source);
+      for (var i = 0; i < state.shots.length; i++) {
+        var target = state.shots[i];
+        if (target === source) continue;
+        var faces = await facesFor(target);
+        target.props = cloneProps(source.props);
+        target.props.forEach(function (prop) {
+          if (!prop.anchor || !faces.length) return;
+          var from = source.faces && source.faces[prop.face];
+          if (!from) return;
+          var wanted = faceCentre(from, source), best = 0, bestGap = Infinity;
+          faces.forEach(function (face, index) {
+            var gap = Math.abs(faceCentre(face, target) - wanted);
+            if (gap < bestGap) { bestGap = gap; best = index; }
+          });
+          fitPropToFace(prop, target, best);
+        });
+        invalidateShot(target);
+      }
+    } finally {
+      el.decorAll.classList.remove('busy');
     }
-
-    setDecorBusy(true);
-    var faces = await facesFor(shot);
-    setDecorBusy(false);
-
-    if (!faces.length) {
-      toast(window.BoothFaces && window.BoothFaces.unavailable()
-        ? 'No se pudo cargar \u00b7 Face fitting unavailable'
-        : 'No encontr\u00e9 una cara \u00b7 No face found - drag it yourself');
-      return;
-    }
-
-    var fitted = 0;
-    anchored.forEach(function (prop, index) {
-      if (fitPropToFace(prop, shot, index % faces.length)) fitted++;
-    });
-    invalidateShot(shot);
-    decorProps.render();
     renderDecorFrames();
-    if (fitted) toast(faces.length > 1
-      ? '\u00a1Listo! \u00b7 Fitted to ' + faces.length + ' faces'
-      : '\u00a1Listo! \u00b7 Fitted to the face');
+    toast(t('¡Listo! En todas las fotos', 'Done! On every photo'));
     noteActivity();
   }
-
-  function setDecorBusy(busy) {
-    el.decorFit.disabled = busy;
-    el.decorFit.classList.toggle('busy', busy);
-  }
-
 
   function canDecorate() {
     return state.shots.length > 0 && (state.mode === 'strip' || state.mode === 'single');
@@ -2206,6 +2226,7 @@
   function openDecorSheet() {
     if (!canDecorate()) return;
     decorIndex = 0;
+    decorBackup = state.shots.map(function (shot) { return cloneProps(shot.props); });
     el.decorModal.classList.remove('hidden');
     showDecorFrame();
     noteActivity();
@@ -2214,6 +2235,14 @@
   function closeDecorSheet() {
     el.decorModal.classList.add('hidden');
     el.decorProps.innerHTML = '';
+    decorBackup = null;
+  }
+
+  /** Size the photo to the space it has, then lay the props over it. */
+  function layoutDecor() {
+    if (el.decorModal.classList.contains('hidden')) return;
+    fitBox(el.decorWrap, el.decorStage, 4 / 3);
+    decorProps.render();
   }
 
   function showDecorFrame() {
@@ -2224,20 +2253,28 @@
     // guest has picked a crown, the face is usually already known.
     facesFor(shot);
 
-    // The backdrop is the bare photo; the props on top are live nodes, so
+    // The picture is the bare photo; the props on top are live nodes, so
     // reopening never shows a prop twice.
     if (!shot.previewUrl) shot.previewUrl = shot.canvas.toDataURL('image/jpeg', 0.82);
-    var wasSrc = el.decorImg.getAttribute('src');
     el.decorImg.src = shot.previewUrl;
 
     renderDecorFrames();
     buildDecorPalette();
-    if (wasSrc === shot.previewUrl && el.decorImg.complete) decorProps.render();
-    else el.decorImg.onload = function () { decorProps.render(); };
+    updateDecorButtons();
+    // The stage has a fixed shape, so the props can go on before the picture
+    // itself has decoded.
+    requestAnimationFrame(layoutDecor);
   }
 
   function buildDecorPalette() {
     buildPalette(el.decorCats, el.decorRow, decorProps, buildDecorPalette);
+  }
+
+  function updateDecorButtons() {
+    var shot = decorShot();
+    var has = !!(shot && shot.props.length);
+    el.decorClear.classList.toggle('hidden', !has);
+    el.decorAll.classList.toggle('hidden', !has || state.shots.length < 2);
   }
 
   /** Thumbnails of every frame, so the guest can see and pick what to decorate. */
@@ -2248,9 +2285,9 @@
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'decor-frame' + (index === decorIndex ? ' on' : '');
-      button.setAttribute('aria-label', 'Foto ' + (index + 1));
+      button.setAttribute('aria-label', t('Foto ', 'Photo ') + (index + 1));
       var img = document.createElement('img');
-      img.src = frameImage(shot).toDataURL('image/jpeg', 0.5);
+      img.src = shotThumb(shot);
       img.alt = '';
       button.appendChild(img);
       var badge = document.createElement('div');
@@ -2268,8 +2305,20 @@
   }
 
   function wireDecorSheet() {
-    el.decorFit.addEventListener('click', fitAllToFaces);
+    el.decorAll.addEventListener('click', decorateAllFrames);
+    el.decorClear.addEventListener('click', function () {
+      decorProps.clear();
+      noteActivity();
+    });
     el.decorCancel.addEventListener('click', function () {
+      // Put every frame back the way it was when the editor opened.
+      if (decorBackup) {
+        state.shots.forEach(function (shot, index) {
+          if (!decorBackup[index]) return;
+          shot.props = decorBackup[index];
+          invalidateShot(shot);
+        });
+      }
       closeDecorSheet();
       noteActivity();
     });
@@ -2279,9 +2328,7 @@
       // frames changed, so anyone who already scanned gets the decorated one.
       await composeStills(true);
     });
-    window.addEventListener('resize', function () {
-      if (!el.decorModal.classList.contains('hidden')) decorProps.render();
-    });
+    window.addEventListener('resize', layoutDecor);
   }
 
   // ---------------------------------------------------------------- review
@@ -2346,109 +2393,143 @@
 
   function qrCard(url, title, subtitle) {
     var svg = qrSvg(url);
-    if (!svg) return;
+    if (!svg) return false;
     var card = document.createElement('div');
-    card.className = 'album-card';
+    card.className = 'qr-card';
     var qr = document.createElement('div');
     qr.className = 'qr';
     qr.innerHTML = svg;                       // built here from a fixed grid
+    var words = document.createElement('div');
     var heading = document.createElement('div');
     heading.className = 'qr-title';
-    var words = L(title, subtitle);
-    heading.textContent = words.main;
+    heading.textContent = title;
     var sub = document.createElement('div');
     sub.className = 'qr-sub';
-    sub.textContent = words.sub;
-    sub.hidden = !words.sub;
+    sub.textContent = subtitle;
+    words.appendChild(heading);
+    words.appendChild(sub);
     card.appendChild(qr);
-    card.appendChild(heading);
-    card.appendChild(sub);
+    card.appendChild(words);
     el.actionPane.appendChild(card);
+    return true;
   }
 
+  function tile(icon, label, handler, extra) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tile' + (extra ? ' ' + extra : '');
+    var glyph = document.createElement('span');
+    glyph.className = 'ico';
+    glyph.textContent = icon;
+    var name = document.createElement('span');
+    name.textContent = label;
+    button.appendChild(glyph);
+    button.appendChild(name);
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function miniButton(label, handler) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mini';
+    button.textContent = label;
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function actionRow(className) {
+    var row = document.createElement('div');
+    row.className = className;
+    return row;
+  }
+
+  /**
+   * The result screen's column, top to bottom: how the photo leaves the booth,
+   * the two bits of fun, then retake or done. Anything that only makes sense
+   * to whoever runs the booth is small or absent.
+   */
   function buildActions() {
-    el.actionPane.innerHTML = '';
+    var pane = el.actionPane;
+    var result = state.result;
+    pane.innerHTML = '';
+    if (!result) return;
 
-    // A QR for this one photo when the handoff Worker is configured,
-    // otherwise the album QR this build has always shown.
-    var mine = state.result.code && window.BoothShare
-      ? window.BoothShare.linkFor(state.result.code) : '';
-    if (mine) {
-      qrCard(mine, 'Escanea para llevártela', 'Scan to take this one home');
-    } else {
-      var album = albumLink();
-      if (album) {
-        qrCard(album, 'Escanea para todas las fotos', 'Scan for every photo from tonight');
-      }
-    }
-
-    var file = new File([state.result.blob], state.result.filename, { type: state.result.mime });
+    var file = new File([result.blob], result.filename, { type: result.mime });
     var canShareFile = config.enableShare && navigator.canShare && navigator.canShare({ files: [file] });
-
-    if (canDecorate()) {
-      addAction('🎨', 'Decorar', 'Add props to each photo', openDecorSheet);
+    function share() {
+      navigator.share({ files: [file], text: shareText() }).catch(function () { /* dismissed */ });
+      noteActivity();
     }
-
-    if (config.enableSign && state.composed) {
-      addAction('✍️', 'Firmar', 'Sign it', openSignSheet);
-    }
-
-    if (canShareFile) {
-      addAction('📤', 'Compartir', 'Share', async function () {
-        try {
-          await navigator.share({ files: [file], text: shareText() });
-        } catch (e) { /* the guest dismissed the sheet */ }
-        noteActivity();
-      });
-    }
-
-    addAction('⬇️', 'Descargar', 'Save to Files', function () {
+    function download() {
       var link = document.createElement('a');
-      link.href = state.result.url;
-      link.download = state.result.filename;
+      link.href = result.url;
+      link.download = result.filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       noteActivity();
-    });
-
-    if (config.enablePrint && !state.result.isVideo) {
-      addAction('🖨️', 'Imprimir', 'AirPrint', function () {
-        noteActivity();
-        window.print();
-      });
     }
 
-    var hint = document.createElement('p');
-    hint.className = 'hint';
-    hint.style.textAlign = 'center';
-    hint.textContent = state.result.isVideo
-      ? t('Guarda o comparte el mensaje antes de terminar — no se queda en la tablet.',
-          'Save or share the message before you finish — it does not stay on the tablet.')
-      : t('Para guardarla en Fotos: mantén presionada la imagen → Añadir a Fotos.',
-          'To keep it: press and hold the photo, then Add to Photos.');
-    el.actionPane.appendChild(hint);
+    // 1. Taking it home. A QR for this very photo when the handoff Worker is
+    //    set up, else the shared album. With neither, the share sheet is the
+    //    only way to a guest's phone, so it gets the big button instead.
+    var mine = result.code && window.BoothShare ? window.BoothShare.linkFor(result.code) : '';
+    var hasQr = false;
+    if (mine) {
+      hasQr = qrCard(mine, t('Escanea y llévatela', 'Scan to take it home'),
+                     t('Tu foto se abre en tu teléfono', 'Your photo opens on your phone'));
+    } else if (albumLink()) {
+      hasQr = qrCard(albumLink(), t('Escanea para ver las fotos', 'Scan for tonight\u2019s photos'),
+                     t('Todas las fotos de la fiesta', 'Every photo from the party'));
+    }
+    if (!hasQr) {
+      if (canShareFile) {
+        pane.appendChild(tile('📤', t('Enviar a mi teléfono', 'Send to my phone'), share, 'wide'));
+      } else {
+        pane.appendChild(tile('⬇️', t('Guardar', 'Save'), download, 'wide'));
+      }
+    }
+
+    // 2. The fun.
+    var fun = actionRow('tile-row');
+    if (canDecorate()) fun.appendChild(tile('👑', t('Coronas y más', 'Crowns & more'), openDecorSheet));
+    if (config.enableSign && state.composed) fun.appendChild(tile('✍️', t('Firmar', 'Sign it'), openSignSheet));
+    if (fun.children.length) pane.appendChild(fun);
+
+    // 3. The extras, small.
+    var extras = actionRow('mini-row');
+    if (hasQr && canShareFile) extras.appendChild(miniButton('📤 ' + t('Compartir', 'Share'), share));
+    if (config.enablePrint && !result.isVideo) {
+      extras.appendChild(miniButton('🖨️ ' + t('Imprimir', 'Print'), function () {
+        noteActivity();
+        window.print();
+      }));
+    }
+    if (extras.children.length) pane.appendChild(extras);
+
+    if (result.isVideo && !mine) {
+      var note = document.createElement('p');
+      note.className = 'result-note';
+      note.textContent = t('Envíalo antes de terminar: el video no se queda en la tablet.',
+                           'Send it before you finish: the video is not kept on the tablet.');
+      pane.appendChild(note);
+    }
 
     var spacer = document.createElement('div');
     spacer.className = 'spacer';
-    el.actionPane.appendChild(spacer);
+    pane.appendChild(spacer);
 
-    addAction('🔄', 'Otra vez', 'Take another', function () {
+    // 4. Again, or done.
+    var end = actionRow('tile-row');
+    end.appendChild(tile('🔄', t('Repetir', 'Retake'), function () {
       state.shots = [];
+      state.shotIndex = 0;
       updateShotStrip();
       setPhase('ready');
-    });
-    addAction('✅', '¡Listo!', 'All done', goAttract, true);
-  }
-
-  function addAction(icon, title, subtitle, handler, primary) {
-    var button = document.createElement('button');
-    button.className = 'btn' + (primary ? ' primary' : '');
-    var words = L(title, subtitle);
-    button.innerHTML = '<span style="font-size:24px">' + icon + '</span><span style="text-align:left"></span>';
-    setBiText(button.lastChild, words.main, words.sub);
-    button.addEventListener('click', handler);
-    el.actionPane.appendChild(button);
+    }, 'ghost'));
+    end.appendChild(tile('✅', t('¡Listo!', 'Done!'), goAttract, 'primary'));
+    pane.appendChild(end);
   }
 
   function shareText() {
@@ -2478,8 +2559,14 @@
     state.shotIndex = 0;
     state.filter = FILTERS[0];
     el.video.style.filter = 'none';
-    renderPropElements();
+    // An editor left open by a guest who walked away must not sit on top of
+    // the welcome screen for the next one.
+    closeDecorSheet();
+    closeSignSheet();
+    // The next guest gets the booth's own language again.
+    if (guestLang) { guestLang = null; applyLanguage(); }
     updateShotStrip();
+    buildControls();
     setPhase('attract');
   }
 
@@ -2516,8 +2603,8 @@
     { group: 'Capture', key: 'countdownSeconds', label: 'Countdown (s)', type: 'number', min: 1, max: 10 },
     { key: 'stripShotCount', label: 'Shots per strip', type: 'number', min: 2, max: 6 },
     { key: 'idleResetSeconds', label: 'Auto-reset (s)', type: 'number', min: 15, max: 600 },
-    { group: 'Booth', key: 'lang', label: 'Guest language', type: 'choice',
-      options: [['both', 'Español + English'], ['es', 'Español'], ['en', 'English']] },
+    { group: 'Booth', key: 'lang', label: 'Opens in', type: 'choice',
+      options: [['es', 'Español'], ['en', 'English']] },
     { key: 'enableVideo', label: 'Video message', type: 'bool' },
     { key: 'videoSeconds', label: 'Message length (s)', type: 'number', min: 5, max: 60 },
     { key: 'enableSign', label: 'Let guests sign the photo', type: 'bool' },
@@ -2645,40 +2732,44 @@
   }
 
   function bindAdmin() {
-    var holdTimer;
+    var holdTimer = null, holdPointer = null;
     /**
-     * Press and hold to reach the settings. Three things made this unreliable
-     * on a tablet:
+     * Press and hold the top-left corner to reach the settings, from any
+     * screen. What it took to make this dependable on a tablet:
      *
-     *  - `pointerleave` cancelled it. A finger resting for three seconds rolls
-     *    and drifts, and leaving the box by a pixel killed the hold silently.
-     *    The pointer is captured instead, so the gesture belongs to this
-     *    element until it is released.
-     *  - There was no feedback at all. Three seconds of nothing is
-     *    indistinguishable from pressing the wrong place, so the only way to
-     *    learn it was not working was to give up.
-     *  - Touch scrolling could steal the gesture; `touch-action: none` in the
-     *    stylesheet stops that.
+     *  - It listens on the document, not on an element sitting in the corner.
+     *    An invisible element there swallowed every ordinary tap on whatever
+     *    was underneath it, the corner of the photo included. The #hotcorner
+     *    element is now only the progress dot, and takes no input.
+     *  - Drifting does not cancel it. A finger resting for three seconds rolls
+     *    and slides; only lifting it ends the hold.
+     *  - It shows itself filling up, because three seconds of nothing is
+     *    indistinguishable from pressing the wrong place.
      */
+    var CORNER = 96;
     function endHold() {
       clearTimeout(holdTimer);
       holdTimer = null;
+      holdPointer = null;
       el.hotcorner.classList.remove('holding');
     }
 
-    el.hotcorner.addEventListener('pointerdown', function (event) {
-      if (holdTimer) return;
-      try { el.hotcorner.setPointerCapture(event.pointerId); } catch (e) { /* mouse, or unsupported */ }
+    document.addEventListener('pointerdown', function (event) {
+      if (holdTimer || event.clientX > CORNER || event.clientY > CORNER) return;
+      // Not while a settings sheet is already up.
+      if (!el.pinModal.classList.contains('hidden') || !el.adminModal.classList.contains('hidden')) return;
+      holdPointer = event.pointerId;
       el.hotcorner.classList.add('holding');
       holdTimer = setTimeout(function () { endHold(); openPinGate(); }, HOLD_MS);
-    });
-    // The plain way in: a small gear on the welcome screen. The hidden hold
-    // gesture stays for the other screens, but a control nobody can find is
-    // not a control, and the PIN is what keeps guests out, not obscurity.
-    el.settingsBtn.addEventListener('click', openPinGate);
+    }, true);
     ['pointerup', 'pointercancel'].forEach(function (type) {
-      el.hotcorner.addEventListener(type, endHold);
+      document.addEventListener(type, function (event) {
+        if (event.pointerId === holdPointer) endHold();
+      }, true);
     });
+    // The plain way in: a small gear on the welcome screen. A control nobody
+    // can find is not a control, and the PIN is what keeps guests out.
+    el.settingsBtn.addEventListener('click', openPinGate);
 
     function openPinGate() {
       el.pinInput.value = '';
@@ -2708,7 +2799,6 @@
       applyTheme();
       applyLanguage();
       buildControls();
-      if (state.phase === 'review' && state.result) buildActions();
     });
     el.adminReset.addEventListener('click', function () {
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
@@ -2724,14 +2814,37 @@
   // ---------------------------------------------------------------- boot
 
   function bind() {
-    el.startBtn.addEventListener('click', beginSession);
-    el.attract.addEventListener('click', function (event) {
-      if (event.target === el.startBtn || el.startBtn.contains(event.target)) return;
-      if (el.settingsBtn.contains(event.target)) return;
-      beginSession();
-    });
     el.shootBtn.addEventListener('click', startCapture);
     el.exitBtn.addEventListener('click', goAttract);
+    el.filterBtn.addEventListener('click', function () {
+      setFilterTray(!el.filterTray.classList.contains('open'));
+      noteActivity();
+    });
+    // Tapping the picture puts the filters away again.
+    el.frame.addEventListener('click', function () {
+      if (state.phase === 'ready') setFilterTray(false);
+    });
+
+    // A guest's language choice lasts for their turn. If they pick one and
+    // walk off without starting, it lapses on the same clock as everything else.
+    var langTimer;
+    el.langToggle.addEventListener('click', function (event) {
+      var button = event.target.closest ? event.target.closest('button[data-lang]') : null;
+      if (!button) return;
+      var lang = button.getAttribute('data-lang');
+      guestLang = lang === config.lang ? null : lang;
+      applyLanguage();
+      buildControls();
+      clearTimeout(langTimer);
+      if (guestLang) {
+        langTimer = setTimeout(function () {
+          if (state.phase !== 'attract' || !guestLang) return;
+          guestLang = null;
+          applyLanguage();
+          buildControls();
+        }, config.idleResetSeconds * 1000);
+      }
+    });
 
     document.addEventListener('pointerdown', noteActivity, true);
     el.video.addEventListener('loadedmetadata', syncCropRegion);

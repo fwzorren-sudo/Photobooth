@@ -10,37 +10,52 @@ offline after the first load.
 
 ## Use it
 
-Open the page, allow the camera once, and tap to start. Guests get:
+Open the page and allow the camera once. The booth is three screens, with one
+decision on each, and nothing is ever drawn over the photo except the countdown.
 
-- **Tira de Fotos** — a classic 4-shot strip with a countdown between shots
-- **Foto** — a single framed photo
-- **Boomerang** — a looping GIF, encoded in the browser
+1. **Welcome.** One big card for each thing the booth can make:
+   - **Tira de fotos** — a classic 4-shot strip with a countdown between shots
+   - **Una foto** — a single framed photo
+   - **Boomerang** — a looping GIF, encoded in the browser
+   - **Mensaje** — a short video message
 
-…plus seven filters and a tray of props they drag, pinch and twist onto the
-frame. Drop a prop with a tap, double-tap it to remove it.
+   A Spanish / English toggle sits in the corner. The booth shows one language
+   at a time, so every label is big enough to read from arm's length.
+2. **Camera.** The live picture and one round shutter button. The controls sit
+   in a solid rail beside the photo on a landscape tablet, and underneath it on
+   a phone, so they never cover anyone. *Filtros* opens the seven looks.
+3. **Result.** The keepsake, large, and beside it: how to take it home,
+   **Coronas y más**, **Firmar**, then *Repetir* and *¡Listo!*.
 
 ### Props
 
-Each category leads with real artwork — crowns, tiaras, a sash, a sceptre, a
-masquerade mask — and falls back to emoji after it. Drop your own in
-[`props/`](props/README.md): a file plus a line of JSON, no code change.
+Props go on **after** the photo, not before. *Coronas y más* opens each frame
+on its own, as large as the screen allows. Each category leads with real
+artwork — crowns, tiaras, a sash, a sceptre, a masquerade mask — and falls
+back to emoji after it. Drop your own in [`props/`](props/README.md): a file
+plus a line of JSON, no code change.
 
-Props are **data, not pixels**. Nothing is burned in until the keepsake is
-published, which means two things guests notice:
+- **Tap a crown and it lands on a head.** The faces in the frame are found in
+  the background and crowns, tiaras and masks are fitted to them — right size,
+  right angle, one per person. Everything is measured in eye-widths, so
+  leaning towards the lens gets you a bigger crown and a tilted head gets a
+  tilted one. Anything can still be dragged, pinched and turned, and
+  double-tapped away. If no face is found the prop simply lands in the middle.
+- **Poner en todas las fotos** copies a frame's props to the rest of a strip,
+  re-fitting them to wherever each person stands in each frame. Or decorate
+  the four frames differently, one at a time.
 
-- **Decorar** on the review screen reopens each frame of a strip on its own,
-  large enough to aim at, so all four can be decorated differently instead of
-  carrying one set repeated four times.
-- **A la cara** finds the faces in a frame and fits the crowns, tiaras and
-  masks onto them — right size, right angle, one per head. Everything is
-  measured in eye-widths, so leaning towards the lens gets you a bigger crown
-  and a tilted head gets a tilted one. Anything can still be dragged
-  afterwards, and if no face is found the prop simply lands in the middle.
+Props are **data, not pixels**: nothing is burned in until the keepsake is
+published.
+
+They used to be placed over the live camera too. That looked like the fun part
+and was the worst part: a crown sat frozen mid-screen while the people under
+it moved, and whatever they managed was stamped identically on all four frames.
 
 Face detection is BlazeFace via TensorFlow.js, vendored under `vendor/tfjs`
-so it needs no network. It loads lazily, on the first tap that wants a face,
-and if it cannot load — or finds nobody — props are placed by hand exactly as
-before. It is a convenience, never a dependency.
+so it needs no network. It loads lazily, the first time the props screen
+opens, and if it cannot load — or finds nobody — props are placed by hand. It
+is a convenience, never a dependency.
 
 Open [`facecheck.html`](facecheck.html) to see what the detector sees: the box,
 the landmarks, and a crown placed by the same code the booth uses. Worth
@@ -51,25 +66,26 @@ running in the actual room, under the actual lighting, before the party.
 **Firmar** lets a guest sign with a finger. It opens a wide band by default,
 because the whole strip scaled to fit a tablet is about an inch and a half
 across — far too small to write anything legible on. The handwriting is
-composed inside the keepsake's own border. *Toda la tira* is there for anyone
+composed inside the keepsake's own border. *Sobre la foto* is there for anyone
 who would rather write across the photos themselves, at full width with the
 strip scrolling under their hand.
 
 ### Taking photos home
 
-Two ways, and you can use either or both:
+The result screen leads with whichever of these is set up:
 
 - **Photo handoff.** Point `upload` at a small Worker (not included here) and
-  each finished keepsake gets its own QR code on the review screen. A guest
-  scans it and the photo opens on their phone. The QR goes up immediately,
-  before the upload finishes, so nobody waits. Photos are kept on the device
-  in the meantime and retried if the Wi-Fi drops.
-- **Shared album.** Set `album` to a shared-album link and the review screen
-  shows a QR for it instead. One scan, every photo from the night — but only
-  if somebody actually uploads them afterwards; the booth does not fill it.
+  each finished keepsake gets its own QR code. A guest scans it and the photo
+  opens on their phone. The QR goes up immediately, before the upload
+  finishes, so nobody waits. Photos are kept on the device in the meantime and
+  retried if the Wi-Fi drops.
+- **Shared album.** Set `album` to a shared-album link and the QR points there
+  instead. One scan, every photo from the night — but only if somebody
+  actually uploads them afterwards; the booth does not fill it.
+- **Neither.** A single *Enviar a mi teléfono* button opens the share sheet
+  (AirDrop, Messages). Nothing is ever sent anywhere on its own.
 
-With neither set, guests still get **Descargar** and the iOS share sheet, and
-nothing is ever sent anywhere.
+The booth never offers to save to itself: that helps the tablet, not the guest.
 
 ### The rest
 
@@ -78,12 +94,12 @@ There is a **video guestbook** mode for a short spoken message, and a
 on everything the booth makes. The monogram stays on the device — it is never
 committed here.
 
-A "stand here" oval shows while guests get into position, and the countdown
-sits at the top edge of the screen, next to the lens, so they look up at the
-camera instead of down at the controls. There is deliberately no spoken or
-beeping countdown: the booth lives in a room with a DJ. If one frame of a
-strip comes out badly, tapping that thumbnail reshoots **just that frame** and
-keeps the rest.
+The countdown sits at the top edge of the picture, next to the lens, so guests
+look up at the camera instead of down at the controls, and the controls step
+out of the way while it runs. There is deliberately no spoken or beeping
+countdown: the booth lives in a room with a DJ. If one frame of a strip comes
+out badly, tapping that thumbnail reshoots **just that frame** and keeps the
+rest.
 
 Between guests the welcome screen shows the night's most recent keepsakes —
 which is what actually builds a queue. A small corner chip warns whoever is
@@ -91,7 +107,7 @@ running the booth (and only them) about a flat battery, low storage, Wi-Fi
 dropping out, or the camera being taken by another app.
 
 The booth returns itself to the welcome screen after 45 seconds of inactivity,
-so the queue keeps moving.
+closing any editor left open, so the queue keeps moving.
 
 ## Set it up for your event
 
@@ -115,7 +131,7 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `countdown` | `3` | Seconds before each shot (1–10) |
 | `shots` | `4` | Photos per strip (2–6) |
 | `idle` | `45` | Seconds before the booth resets (15–600) |
-| `lang` | `both`, `es` or `en` | Guest-facing language: Spanish with English underneath (default), or one of them |
+| `lang` | `es` or `en` | The language the booth opens in. Guests can switch on the welcome screen |
 | `slideshow` | `0` | Set to `0` to keep tonight's photos off the welcome screen |
 | `video`, `sign` | `0` | Set to `0` to hide the video guestbook or signing |
 | `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
@@ -146,8 +162,8 @@ lock guests into the booth — triple-click the top button to start it.
 
 **Tap the small gear in the bottom-right corner of the welcome screen**, or
 press and hold the top-left corner of any screen for three seconds, and enter
-the PIN (default `1515`). You can change the name, date, hashtag, guest
-language, colours, modes, countdown and shots per strip on the device. Those
+the PIN (default `1515`). You can change the name, date, hashtag, the language
+the booth opens in, colours, modes, countdown and shots per strip on the device. Those
 edits override the URL until you tap *Reset*.
 
 ## Run it locally
@@ -172,18 +188,18 @@ decoder (including the dictionary-overflow and code-width-growth paths), then
 encode a full GIF and decode it back to confirm every frame matches the
 quantizer byte for byte.
 
-The browser-level tests — camera, filters, props, signing, face anchoring, the
-photo handoff — live with the private build and run against headless Chromium
-with a fake camera. One thing they cannot cover: **no camera in a build
-environment contains a real face**, so whether the detector actually finds one
-in your room is what `facecheck.html` is for.
+The browser-level tests — every screen driven the way a guest drives it, on
+six screen sizes, with a fake camera — live with the private build. One thing
+they cannot cover: **no camera in a build environment contains a real face**,
+so whether the detector actually finds one in your room is what
+`facecheck.html` is for.
 
 ## Notes
 
-- Guest-facing text is Spanish with an English line underneath by default.
-  The settings panel (or `lang=`) switches it to Spanish only or English only.
-- Designed for a landscape iPad; it degrades to a stacked layout on phones.
+- Guest-facing text exists in Spanish and English; the booth shows one at a
+  time, opens in whichever `lang=` or the settings say, and lets a guest switch.
+- Designed for a landscape iPad; on a phone the controls move under the photo.
 - The preview and the saved photo run through the same render path, so the
-  filter and props a guest arranges on screen are exactly what comes out.
+  look a guest picks on screen is exactly what comes out.
 - Keepsakes are kept on the device (IndexedDB) so the welcome-screen slideshow
   and the upload queue survive a reload. Clearing site data clears them.
