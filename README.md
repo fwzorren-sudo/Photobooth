@@ -74,11 +74,13 @@ strip scrolling under their hand.
 
 The result screen leads with whichever of these is set up:
 
-- **Photo handoff.** Point `upload` at a small Worker (not included here) and
-  each finished keepsake gets its own QR code. A guest scans it and the photo
-  opens on their phone. The QR goes up immediately, before the upload
-  finishes, so nobody waits. Photos are kept on the device in the meantime and
-  retried if the Wi-Fi drops.
+- **Photo handoff.** Point `upload` at a small Worker (not included here), give
+  it its key in `ukey`, and each finished keepsake gets its own QR code. A
+  guest scans it and the photo opens on their phone. The QR goes up
+  immediately, before the upload finishes, and a line under it says whether a
+  scan will work this second. If the Wi-Fi is out, the scan opens a page that
+  waits by itself; the photo is kept on the device, retried, and appears there
+  once the booth is back online.
 - **Shared album.** Set `album` to a shared-album link and the QR points there
   instead. One scan, every photo from the night — but only if somebody
   actually uploads them afterwards; the booth does not fill it.
@@ -134,7 +136,8 @@ Everything is configured from the URL, so there is nothing to edit or rebuild:
 | `lang` | `es` or `en` | The language the booth opens in. Guests can switch on the welcome screen |
 | `slideshow` | `0` | Set to `0` to keep tonight's photos off the welcome screen |
 | `video`, `sign` | `0` | Set to `0` to hide the video guestbook or signing |
-| `strip`, `single`, `boomerang`, `print`, `share` | `0` | Set to `0` to hide that option |
+| `strip`, `single`, `boomerang`, `share` | `0` | Set to `0` to hide that option |
+| `print` | `1` | Shows a Print button (AirPrint). Off by default: only useful with a printer there |
 
 URL-encode accents and spaces. Anything you leave out keeps its default.
 

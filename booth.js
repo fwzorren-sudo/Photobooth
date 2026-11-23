@@ -29,7 +29,10 @@
     countdownSeconds: 3,
     stripShotCount: 4,
     idleResetSeconds: 45,
-    enablePrint: true,
+    /// Off unless a printer is actually there: a Print button that opens an
+    /// empty AirPrint dialog is worse than no button. `print=1` or the settings
+    /// turn it back on.
+    enablePrint: false,
     enableShare: true,
     /// The language the booth opens in: 'es' or 'en'. Guests can switch on the
     /// welcome screen; it goes back to this when they finish.
@@ -53,6 +56,8 @@
   };
 
   var STORAGE_KEY = 'booth.config.v1';
+  /// Bumped when a saved setting needs a one-time correction on load.
+  var CONFIG_SCHEMA = 2;
 
   // Defaults < URL query (how an MDM Web Clip is configured) < on-device edits.
   var URL_KEYS = {
@@ -83,8 +88,15 @@
 
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-      if (saved) Object.assign(config, saved);
+      if (saved) {
+        Object.assign(config, saved);
+        // Settings saved before printing became opt-in carry `enablePrint:
+        // true` without anyone having chosen it. Drop that once; a choice
+        // made in the settings from here on is saved with the marker and kept.
+        if (saved.schema !== CONFIG_SCHEMA) config.enablePrint = DEFAULTS.enablePrint;
+      }
     } catch (e) { /* private browsing or cleared storage: defaults are fine */ }
+    config.schema = CONFIG_SCHEMA;
 
     return sanitize(config);
   }
@@ -479,6 +491,7 @@
         setWarning('upload', share.pending
           ? t(share.pending + ' sin subir', share.pending + ' waiting to upload')
           : null);
+        updateShareStatus();
       });
     }
 
@@ -2391,11 +2404,12 @@
     }
   }
 
-  function qrCard(url, title, subtitle) {
+  function qrCard(url, title, subtitle, live) {
     var svg = qrSvg(url);
     if (!svg) return false;
     var card = document.createElement('div');
     card.className = 'qr-card';
+    card.setAttribute('data-link', url);
     var qr = document.createElement('div');
     qr.className = 'qr';
     qr.innerHTML = svg;                       // built here from a fixed grid
@@ -2408,10 +2422,47 @@
     sub.textContent = subtitle;
     words.appendChild(heading);
     words.appendChild(sub);
+    if (live) {
+      // Whether a scan will work right now. The QR goes up before the upload
+      // has finished, so without this a guest on a bad connection scans, gets
+      // a waiting page, and has no idea whether to keep waiting.
+      var status = document.createElement('div');
+      status.className = 'qr-status';
+      status.id = 'shareStatus';
+      words.appendChild(status);
+    }
     card.appendChild(qr);
     card.appendChild(words);
     el.actionPane.appendChild(card);
     return true;
+  }
+
+  /** Keep the line under the QR honest about where this photo's upload is. */
+  function updateShareStatus() {
+    var node = document.getElementById('shareStatus');
+    var code = state.result && state.result.code;
+    if (!node || !code || !window.BoothShare) return;
+    window.BoothShare.find(code).then(function (record) {
+      if (!node.isConnected || !state.result || state.result.code !== code) return;
+      var kind, words;
+      if (record && record.uploaded) {
+        kind = 'ready';
+        words = t('✓ Lista para escanear', '✓ Ready to scan');
+      } else if (record && /^HTTP 4/.test(record.lastError || '')) {
+        // The Worker refused it: a wrong key or address. Waiting will not help.
+        kind = 'stuck';
+        words = t('No se pudo enviar. Avisa al anfitrión.', 'It could not be sent. Tell the host.');
+      } else if ((record && record.attempts > 0) || navigator.onLine === false) {
+        kind = 'waiting';
+        words = t('Sin internet ahora. Escanea igual: llegará sola.',
+                  'No internet right now. Scan anyway: it will arrive by itself.');
+      } else {
+        kind = 'sending';
+        words = t('Subiendo…', 'Uploading…');
+      }
+      node.className = 'qr-status ' + kind;
+      node.textContent = words;
+    });
   }
 
   function tile(icon, label, handler, extra) {
@@ -2474,11 +2525,15 @@
     // 1. Taking it home. A QR for this very photo when the handoff Worker is
     //    set up, else the shared album. With neither, the share sheet is the
     //    only way to a guest's phone, so it gets the big button instead.
-    var mine = result.code && window.BoothShare ? window.BoothShare.linkFor(result.code) : '';
+    //    "Set up" means a Worker address AND its key. An address alone would
+    //    put up a QR for a photo that is never going to be uploaded.
+    var mine = result.code && window.BoothShare && window.BoothShare.configured()
+      ? window.BoothShare.linkFor(result.code) : '';
     var hasQr = false;
     if (mine) {
       hasQr = qrCard(mine, t('Escanea y llévatela', 'Scan to take it home'),
-                     t('Tu foto se abre en tu teléfono', 'Your photo opens on your phone'));
+                     t('Tu foto se abre en tu teléfono', 'Your photo opens on your phone'), true);
+      if (hasQr) updateShareStatus();
     } else if (albumLink()) {
       hasQr = qrCard(albumLink(), t('Escanea para ver las fotos', 'Scan for tonight\u2019s photos'),
                      t('Todas las fotos de la fiesta', 'Every photo from the party'));
@@ -2798,6 +2853,7 @@
       el.adminModal.classList.add('hidden');
       applyTheme();
       applyLanguage();
+      initShare();
       buildControls();
     });
     el.adminReset.addEventListener('click', function () {
@@ -2805,6 +2861,7 @@
       config = loadConfig();
       applyTheme();
       applyLanguage();
+      initShare();
       buildAdmin();
       buildControls();
       toast('Settings reset');
@@ -2861,12 +2918,15 @@
     document.addEventListener('gesturestart', function (event) { event.preventDefault(); });
   }
 
-  if (window.BoothShare) {
+  /** Point the handoff at whatever the settings currently say. */
+  function initShare() {
+    if (!window.BoothShare) return;
     window.BoothShare.init({
-      uploadBase: config.uploadUrl,
-      uploadKey: config.uploadKey
+      uploadBase: (config.uploadUrl || '').trim(),
+      uploadKey: (config.uploadKey || '').trim()
     });
   }
+  initShare();
 
   applyTheme();
   applyLanguage();

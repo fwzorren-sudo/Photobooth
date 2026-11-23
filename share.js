@@ -285,6 +285,8 @@
     status: status,
     onChange: onChange,
     list: all,
+    /** One keepsake's record, or null: whether it is uploaded, and why not. */
+    find: function (code) { return get(code).then(function (record) { return record || null; }); },
     _purgeUploaded: purgeUploaded
   };
 })(typeof window !== 'undefined' ? window : this);
