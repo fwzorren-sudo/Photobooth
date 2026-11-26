@@ -59,6 +59,60 @@
   /// Bumped when a saved setting needs a one-time correction on load.
   var CONFIG_SCHEMA = 2;
 
+  // ---------------------------------------------------------------- trail
+
+  /// What this copy of the booth is. Shown in the settings so "is this iPad
+  /// on the fixed version?" has an answer. Bump it with CACHE in sw.js.
+  var BUILD = 20;
+
+  /**
+   * A short diary of what the booth was doing, kept in localStorage so it
+   * survives the page going away.
+   *
+   * It exists for one question that cannot be answered from anywhere else:
+   * "it took my photo and then I was back at the start". Nothing in this file
+   * goes from the shutter to the welcome screen, so that is either a tap, the
+   * idle reset, or the browser throwing the page away and loading it again --
+   * and only the last of those leaves no trace. The diary does: a page that
+   * closes normally writes a last line, and one that is killed cannot.
+   *
+   * Read it in the settings, under Diagnostics.
+   */
+  var TRAIL_KEY = 'booth.trail.v1';
+  var TRAIL_MAX = 70;
+  var trailLog = [];
+  /// Empty when the last visit ended normally; otherwise what it was doing.
+  var lastEndedBadly = '';
+  try { trailLog = JSON.parse(localStorage.getItem(TRAIL_KEY) || '[]') || []; } catch (e) { trailLog = []; }
+  if (!Array.isArray(trailLog)) trailLog = [];
+  (function () {
+    var last = trailLog.length ? String(trailLog[trailLog.length - 1]) : '';
+    if (last && !/(page closed|in background)$/.test(last)) lastEndedBadly = last;
+  })();
+
+  function trail(what) {
+    trailLog.push(new Date().toTimeString().slice(0, 8) + ' ' + what);
+    if (trailLog.length > TRAIL_MAX) trailLog.splice(0, trailLog.length - TRAIL_MAX);
+    try { localStorage.setItem(TRAIL_KEY, JSON.stringify(trailLog)); } catch (e) { /* private browsing */ }
+  }
+  function describeError(err) {
+    if (!err) return 'unknown';
+    return String((err.name ? err.name + ': ' : '') + (err.message || err)).slice(0, 160);
+  }
+
+  trail('--- opened, build ' + BUILD + (lastEndedBadly ? ' (last visit did not close normally)' : ''));
+  window.addEventListener('error', function (event) {
+    trail('ERROR ' + String(event.message || 'script error').slice(0, 160) +
+          (event.lineno ? ' @' + event.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    trail('ERROR (promise) ' + describeError(event.reason));
+  });
+  window.addEventListener('pagehide', function () { trail('page closed'); });
+  document.addEventListener('visibilitychange', function () {
+    trail(document.visibilityState === 'visible' ? 'back in front' : 'in background');
+  });
+
   // Defaults < URL query (how an MDM Web Clip is configured) < on-device edits.
   var URL_KEYS = {
     name: 'celebrantName', date: 'eventDate', tag: 'hashtag',
@@ -621,12 +675,14 @@
       if (track) {
         track.addEventListener('ended', function () {
           cameraReady = false;
+          trail('camera stopped by the system');
           setWarning('camera', t('Cámara detenida', 'Camera stopped'));
         });
       }
       return true;
     } catch (err) {
       var name = err && err.name;
+      trail('camera would not start: ' + describeError(err));
       if (name === 'NotAllowedError' || name === 'SecurityError') {
         showCameraNotice(
           t('Permite la cámara', 'Camera access is off'),
@@ -1503,6 +1559,7 @@
   }
 
   function setPhase(phase) {
+    if (state.phase !== phase || phase !== 'attract') trail('screen: ' + phase);
     state.phase = phase;
     var onCamera = phase !== 'attract' && phase !== 'review';
     el.attract.classList.toggle('hidden', phase !== 'attract');
@@ -1643,6 +1700,7 @@
           showOverlay('', 'flash');
           shutter();
           state.shots.push(newShot(1440));
+          trail('photo ' + (i + 1) + ' of ' + count + ' taken');
           await sleep(250);
           if (state.cancelled) return abortCapture();
           updateShotStrip();
@@ -1650,6 +1708,7 @@
         await composeStills();
       }
     } catch (err) {
+      trail('ERROR while taking: ' + describeError(err));
       toast(t('Algo salió mal', 'Something went wrong'));
       setPhase('ready');
       showOverlay('');
@@ -1677,6 +1736,7 @@
    * keeps its code. A fresh capture or a redone frame starts clean.
    */
   async function composeStills(keep) {
+    trail('building the keepsake');
     processingOverlay();
     await sleep(30); // let the overlay paint before the main thread blocks
     if (!keep) state.signature = { mode: 'band', strokes: [] };
@@ -1856,6 +1916,7 @@
     // The code is picked here, before anything is uploaded, so the QR can go
     // up immediately and the upload never blocks the guest.
     var code = reuseCode || (window.BoothShare && window.BoothShare.newCode()) || '';
+    trail('keepsake ready: ' + extension + ', ' + (blob ? Math.round(blob.size / 1024) + ' KB' : 'EMPTY'));
     state.result = {
       blob: blob,
       mime: mime,
@@ -2397,6 +2458,7 @@
 
       await composeStills();
     } catch (err) {
+      trail('ERROR while retaking: ' + describeError(err));
       state.redoIndex = -1;
       toast(t('Algo salió mal', 'Something went wrong'));
       showOverlay('');
@@ -2583,7 +2645,10 @@
       updateShotStrip();
       setPhase('ready');
     }, 'ghost'));
-    end.appendChild(tile('✅', t('¡Listo!', 'Done!'), goAttract, 'primary'));
+    end.appendChild(tile('✅', t('¡Listo!', 'Done!'), function () {
+      trail('tapped Done');
+      goAttract();
+    }, 'primary'));
     pane.appendChild(end);
   }
 
@@ -2632,7 +2697,10 @@
     clearTimeout(idleTimer);
     if (state.phase === 'attract' || state.phase === 'shooting') return;
     idleTimer = setTimeout(function () {
-      if (state.phase === 'ready' || state.phase === 'review') goAttract();
+      if (state.phase === 'ready' || state.phase === 'review') {
+        trail('nobody touched it for ' + config.idleResetSeconds + ' s: back to the start');
+        goAttract();
+      }
     }, config.idleResetSeconds * 1000);
   }
 
@@ -2784,6 +2852,54 @@
     note.textContent = 'Leave the colors blank to use the theme\u2019s own. Reset clears this '
       + 'device\u2019s settings and returns to the values from the link (the URL parameters your MDM sends).';
     el.adminBody.appendChild(note);
+    buildDiagnostics();
+  }
+
+  /** What the booth has been doing, for whoever is trying to work out why. */
+  function buildDiagnostics() {
+    var group = document.createElement('div');
+    group.className = 'group';
+    group.innerHTML = '<h3>Diagnostics</h3>';
+    el.adminBody.appendChild(group);
+
+    var lines = [
+      'Build ' + BUILD + ' · screen ' + window.innerWidth + '×' + window.innerHeight +
+        (window.navigator.standalone ? ' · Home Screen app' : ''),
+      navigator.userAgent,
+      lastEndedBadly
+        ? 'LAST VISIT DID NOT CLOSE NORMALLY. It stopped at: ' + lastEndedBadly
+        : 'Last visit closed normally.',
+      ''
+    ].concat(trailLog.slice(-40));
+
+    var box = document.createElement('pre');
+    box.id = 'adminTrail';
+    box.className = 'trail';
+    box.textContent = lines.join('\n');
+    el.adminBody.appendChild(box);
+
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn';
+    copy.id = 'adminTrailCopy';
+    copy.textContent = 'Copy diagnostics';
+    copy.addEventListener('click', function () {
+      var done = function () { toast('Copied'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.textContent).then(done, function () { selectAll(); });
+      } else {
+        selectAll();
+      }
+      function selectAll() {
+        var range = document.createRange();
+        range.selectNodeContents(box);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        toast('Selected: copy it from the menu');
+      }
+    });
+    el.adminBody.appendChild(copy);
   }
 
   function bindAdmin() {
@@ -2872,7 +2988,7 @@
 
   function bind() {
     el.shootBtn.addEventListener('click', startCapture);
-    el.exitBtn.addEventListener('click', goAttract);
+    el.exitBtn.addEventListener('click', function () { trail('tapped Back'); goAttract(); });
     el.filterBtn.addEventListener('click', function () {
       setFilterTray(!el.filterTray.classList.contains('open'));
       noteActivity();
